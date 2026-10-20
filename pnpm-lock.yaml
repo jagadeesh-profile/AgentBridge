@@ -147,6 +147,12 @@ importers:
         specifier: 3.24.6
         version: 3.24.6(zod@3.25.76)
 
+  hub:
+    dependencies:
+      '@agentbridge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
 packages:
 
   '@eslint-community/eslint-utils@4.10.1':
