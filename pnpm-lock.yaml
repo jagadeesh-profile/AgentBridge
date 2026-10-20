@@ -147,6 +147,15 @@ importers:
         specifier: 3.24.6
         version: 3.24.6(zod@3.25.76)
 
+  delivery:
+    dependencies:
+      '@agentbridge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@agentbridge/hub':
+        specifier: workspace:*
+        version: link:../hub
+
   hub:
     dependencies:
       '@agentbridge/contracts':
