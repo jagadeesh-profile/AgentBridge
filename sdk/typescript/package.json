@@ -1,0 +1,27 @@
+{
+  "name": "@agentbridge/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --dir src",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@agentbridge/contracts": "workspace:*",
+    "@noble/ed25519": "2.3.0",
+    "ulid": "2.4.0"
+  },
+  "devDependencies": {
+    "@agentbridge/hub": "workspace:*"
+  }
+}

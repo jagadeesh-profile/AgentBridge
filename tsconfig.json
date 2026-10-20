@@ -1,4 +1,17 @@
 {
   "files": [],
-  "references": [{ "path": "./contracts" }, { "path": "./hub" }, { "path": "./delivery" }]
+  "references": [
+    {
+      "path": "./contracts"
+    },
+    {
+      "path": "./hub"
+    },
+    {
+      "path": "./delivery"
+    },
+    {
+      "path": "./sdk/typescript"
+    }
+  ]
 }
