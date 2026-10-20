@@ -15,5 +15,8 @@
     "build": "tsc -b",
     "test": "vitest run --dir src",
     "lint": "eslint src"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
   }
 }

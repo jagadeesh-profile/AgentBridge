@@ -15,6 +15,17 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-imports': 'error',
       'no-console': 'error',
       eqeqeq: ['error', 'always'],
+      // A leading underscore means "deliberately discarded" — the idiom for
+      // destructuring a key off an object in order to drop it.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        },
+      ],
     },
   },
   {
