@@ -1,0 +1,301 @@
+import * as ed from '@noble/ed25519';
+import { requestDescriptor, signDescriptor } from '@agentbridge/contracts';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { makeFakes, type Fakes } from '../ports/fakes/index.js';
+import { registerAgent } from '../domain/registry.js';
+import { assertDepth } from './errors.js';
+import { REDACTED_PATHS } from './logger.js';
+import { buildApp } from './app.js';
+
+let deps: Fakes;
+let app: FastifyInstance;
+let clPriv: Uint8Array;
+
+async function signed(
+  method: string,
+  path: string,
+  bodyObj?: unknown,
+  agentRef = 'agent:claude',
+  priv?: Uint8Array,
+) {
+  const body = bodyObj === undefined ? '' : JSON.stringify(bodyObj);
+  const timestamp = deps.clock.now().toISOString();
+  const [bare, qs] = path.split('?');
+  const query: Record<string, string> = {};
+  if (qs !== undefined) {
+    for (const [k, v] of new URLSearchParams(qs)) query[k] = v;
+  }
+  const sig = await signDescriptor(
+    requestDescriptor({ method, path: bare ?? path, query, body, timestamp }),
+    priv ?? clPriv,
+  );
+  return {
+    method,
+    url: path,
+    ...(bodyObj === undefined ? {} : { payload: body }),
+    headers: {
+      'content-type': 'application/json',
+      'x-agentbridge-workspace': 'ws',
+      'x-agentbridge-agent': agentRef,
+      'x-agentbridge-timestamp': timestamp,
+      'x-agentbridge-signature': sig,
+    },
+  };
+}
+
+beforeEach(async () => {
+  deps = makeFakes();
+  clPriv = ed.utils.randomPrivateKey();
+  const pub = Buffer.from(await ed.getPublicKeyAsync(clPriv)).toString('base64');
+  registerAgent(deps, 'ws', {
+    name: 'claude',
+    capabilities: {},
+    public_key: pub,
+    scopes: ['read', 'message', 'create_task'],
+  });
+  registerAgent(deps, 'ws', {
+    name: 'muse',
+    capabilities: {},
+    public_key: 'BBBB',
+    scopes: ['read', 'message'],
+  });
+  app = await buildApp(
+    { ...deps, ownerPublicKey: new Uint8Array(32) },
+    { logger: false, rateLimitMax: 1000 },
+  );
+  await app.ready();
+});
+
+afterEach(async () => {
+  await app.close();
+});
+
+describe('error mapping', () => {
+  it('maps AgentBridgeError to its catalog status and shape', async () => {
+    const res = await app.inject(
+      await signed('POST', '/v1/tasks', {
+        thread: 'thr_1',
+        assignee: 'agent:ghost',
+        title: 't',
+        payload: {},
+        side_effect: false,
+      }),
+    );
+    expect(res.statusCode).toBe(404);
+    const parsed = res.json() as { error: { code: string; trace_id: string; message: string } };
+    expect(parsed.error.code).toBe('not_found');
+    expect(parsed.error.trace_id).toMatch(/^[0-9a-f]{32}$/);
+    expect(Object.keys(parsed.error).sort()).toEqual(['code', 'message', 'trace_id']);
+  });
+
+  it('returns scope_denied with 403 when the agent lacks the scope', async () => {
+    const res = await app.inject(
+      await signed('POST', '/v1/tasks', {
+        thread: 'thr_1',
+        assignee: 'agent:claude',
+        title: 't',
+        payload: {},
+        side_effect: true,
+      }),
+    );
+    expect(res.statusCode).toBe(403);
+    expect((res.json() as { error: { code: string } }).error.code).toBe('scope_denied');
+  });
+
+  it('returns schema_invalid with 400 when the body fails the contract', async () => {
+    const res = await app.inject(await signed('POST', '/v1/tasks', { thread: 'thr_1' }));
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { error: { code: string } }).error.code).toBe('schema_invalid');
+  });
+
+  it('never leaks a stack trace or file path in an error body', async () => {
+    const res = await app.inject(await signed('POST', '/v1/tasks', { thread: 'thr_1' }));
+    expect(res.body).not.toMatch(/at \w+|\.ts:|node_modules|C:\\/);
+  });
+
+  it('rejects an unsigned request with unauthenticated', async () => {
+    const res = await app.inject({ method: 'GET', url: '/v1/inbox' });
+    expect(res.statusCode).toBe(401);
+    expect((res.json() as { error: { code: string } }).error.code).toBe('unauthenticated');
+  });
+
+  it('rejects a wrong signature with signature_invalid', async () => {
+    const req = await signed(
+      'GET',
+      '/v1/inbox',
+      undefined,
+      'agent:claude',
+      ed.utils.randomPrivateKey(),
+    );
+    const res = await app.inject(req);
+    expect(res.statusCode).toBe(401);
+    expect((res.json() as { error: { code: string } }).error.code).toBe('signature_invalid');
+  });
+
+  it('serves /healthz without auth', async () => {
+    const res = await app.inject({ method: 'GET', url: '/healthz' });
+    expect(res.statusCode).toBe(200);
+  });
+});
+
+describe('happy path over HTTP', () => {
+  it('creates a task and reads it back', async () => {
+    const created = await app.inject(
+      await signed('POST', '/v1/tasks', {
+        thread: 'thr_1',
+        assignee: 'agent:muse',
+        title: 'list matches',
+        payload: { count: 3 },
+        side_effect: false,
+      }),
+    );
+    expect(created.statusCode).toBe(201);
+    const { id } = created.json() as { id: string };
+
+    const read = await app.inject(await signed('GET', `/v1/tasks/${id}`));
+    expect(read.statusCode).toBe(200);
+    expect((read.json() as { state: string }).state).toBe('submitted');
+  });
+
+  it('replays an idempotent create rather than making a second task', async () => {
+    const payload = {
+      thread: 'thr_1',
+      assignee: 'agent:muse',
+      title: 'once',
+      payload: {},
+      side_effect: false,
+      idempotency_key: 'only-once',
+    };
+    const a = await app.inject(await signed('POST', '/v1/tasks', payload));
+    const b = await app.inject(await signed('POST', '/v1/tasks', payload));
+    expect((a.json() as { id: string }).id).toBe((b.json() as { id: string }).id);
+  });
+
+  it('wraps inbox bodies as untrusted', async () => {
+    await app.inject(
+      await signed('POST', '/v1/messages', {
+        thread: 'thr_1',
+        to: ['agent:muse'],
+        body: { text: 'hi' },
+        side_effect: false,
+        idempotency_key: 'm1',
+      }),
+    );
+    // Read as muse: a separate key, so re-register with a known one.
+    const musePriv = ed.utils.randomPrivateKey();
+    deps.store.putAgent({
+      ...(deps.store.getAgent('ws', 'agent:muse') as NonNullable<
+        ReturnType<typeof deps.store.getAgent>
+      >),
+      publicKey: Buffer.from(await ed.getPublicKeyAsync(musePriv)).toString('base64'),
+    });
+    const res = await app.inject(
+      await signed('GET', '/v1/inbox', undefined, 'agent:muse', musePriv),
+    );
+    expect(res.statusCode).toBe(200);
+    const page = res.json() as { items: { body: { untrusted: boolean } }[] };
+    expect(page.items.length).toBeGreaterThan(0);
+    expect(page.items[0]?.body.untrusted).toBe(true);
+  });
+});
+
+// Review Focus item 5 — hostile payload shapes.
+describe('hostile payloads', () => {
+  it('REJECTS a body over the size limit with 413 and keeps serving', async () => {
+    const small = await buildApp(
+      { ...deps, ownerPublicKey: new Uint8Array(32) },
+      { logger: false, bodyLimit: 1024, rateLimitMax: 1000 },
+    );
+    await small.ready();
+    try {
+      const big = await small.inject({
+        method: 'POST',
+        url: '/v1/tasks',
+        payload: JSON.stringify({ pad: 'x'.repeat(5000) }),
+        headers: { 'content-type': 'application/json' },
+      });
+      expect(big.statusCode).toBe(413);
+      // The process still serves afterwards.
+      const health = await small.inject({ method: 'GET', url: '/healthz' });
+      expect(health.statusCode).toBe(200);
+    } finally {
+      await small.close();
+    }
+  });
+
+  it('REJECTS a 10000-deep nested object with schema_invalid, not a crash', async () => {
+    const deep = `${'{"a":'.repeat(10_000)}1${'}'.repeat(10_000)}`;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/tasks',
+      payload: deep,
+      headers: {
+        'content-type': 'application/json',
+        'x-agentbridge-workspace': 'ws',
+        'x-agentbridge-agent': 'agent:claude',
+        'x-agentbridge-timestamp': deps.clock.now().toISOString(),
+        'x-agentbridge-signature': 'ed25519:AAAA',
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { error: { code: string } }).error.code).toBe('schema_invalid');
+
+    const health = await app.inject({ method: 'GET', url: '/healthz' });
+    expect(health.statusCode).toBe(200);
+  });
+
+  it('assertDepth rejects deep nesting without overflowing its own stack', () => {
+    let deep: unknown = 1;
+    for (let i = 0; i < 20_000; i += 1) deep = { a: deep };
+    expect(() => assertDepth(deep)).toThrow(/depth/i);
+  });
+
+  it('assertDepth accepts ordinary payloads', () => {
+    expect(() => assertDepth({ a: { b: { c: [1, 2, { d: 'e' }] } } })).not.toThrow();
+  });
+
+  it('rejects malformed JSON with schema_invalid', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/tasks',
+      payload: '{not json',
+      headers: {
+        'content-type': 'application/json',
+        'x-agentbridge-workspace': 'ws',
+        'x-agentbridge-agent': 'agent:claude',
+        'x-agentbridge-timestamp': deps.clock.now().toISOString(),
+        'x-agentbridge-signature': 'ed25519:AAAA',
+      },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('log redaction', () => {
+  it('redacts every field that could carry agent content or a secret', () => {
+    for (const path of ['body', 'value', 'payload', 'inline', 'webhookSecret', 'privateKey']) {
+      expect(REDACTED_PATHS, path).toContain(path);
+    }
+  });
+});
+
+describe('rate limiting', () => {
+  it('returns rate_limited once an agent exceeds its burst', async () => {
+    const tight = await buildApp(
+      { ...deps, ownerPublicKey: new Uint8Array(32) },
+      { logger: false, rateLimitMax: 2, rateLimitWindow: '1 minute' },
+    );
+    await tight.ready();
+    try {
+      const codes: number[] = [];
+      for (let i = 0; i < 4; i += 1) {
+        const res = await tight.inject(await signed('GET', '/v1/inbox'));
+        codes.push(res.statusCode);
+      }
+      expect(codes).toContain(429);
+    } finally {
+      await tight.close();
+    }
+  });
+});

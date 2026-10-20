@@ -13,7 +13,7 @@ export interface PutArtifactInput {
   name: string;
   content_type: string;
   inline?: unknown;
-  trace_id?: string;
+  trace_id?: string | undefined;
 }
 
 export async function putArtifact(

@@ -320,11 +320,11 @@ class FakeStore implements Store {
     return true;
   }
 
-  seenNonce(agent: string, timestamp: string): boolean {
-    return this.nonces.has(`${agent}/${timestamp}`);
+  seenNonce(agent: string, nonce: string): boolean {
+    return this.nonces.has(`${agent}/${nonce}`);
   }
-  recordNonce(agent: string, timestamp: string, expiresAt: string): void {
-    this.nonces.set(`${agent}/${timestamp}`, expiresAt);
+  recordNonce(agent: string, nonce: string, expiresAt: string): void {
+    this.nonces.set(`${agent}/${nonce}`, expiresAt);
   }
   pruneNonces(now: string): void {
     for (const [k, expiresAt] of [...this.nonces.entries()]) {

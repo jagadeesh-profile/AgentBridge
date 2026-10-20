@@ -1,4 +1,9 @@
-import { AgentBridgeError, requestDescriptor, verifyDescriptor } from '@agentbridge/contracts';
+import {
+  AgentBridgeError,
+  requestDescriptor,
+  sha256Hex,
+  verifyDescriptor,
+} from '@agentbridge/contracts';
 import type { AgentRecord, Deps } from '../ports/index.js';
 
 /** ±300 s, per the Global Constraints and spec §5.1. */
@@ -19,6 +24,7 @@ export interface RawRequest {
 export async function authenticate(
   deps: Pick<Deps, 'store' | 'clock'>,
   raw: RawRequest,
+  opts: { allowReplay?: boolean } = {},
 ): Promise<AgentRecord> {
   const workspace = raw.headers['x-agentbridge-workspace'];
   const ref = raw.headers['x-agentbridge-agent'];
@@ -40,8 +46,20 @@ export async function authenticate(
     throw new AgentBridgeError('unauthenticated', 'timestamp outside the replay window');
   }
 
-  if (deps.store.seenNonce(ref, timestamp)) {
-    throw new AgentBridgeError('unauthenticated', 'timestamp already used');
+  // The nonce is a hash of the SIGNATURE, not the timestamp. Keying on the
+  // timestamp would reject two distinct requests made in the same clock tick —
+  // which a create-then-read pair does routinely. The signature is unique per
+  // distinct request (the descriptor covers method, path, query and body), so
+  // replaying one identical request is still caught.
+  //
+  // Replay rejection applies only to unsafe requests that carry no idempotency
+  // key. A GET is read-only, so repeating one tells the holder of the signature
+  // nothing new; and an unsafe request WITH an idempotency key is deduped by
+  // that layer, which returns the original response without re-executing —
+  // rejecting it here would break the safe retry CLAUDE.md §1.4 promises.
+  const nonce = sha256Hex(signature);
+  if (!opts.allowReplay && deps.store.seenNonce(ref, nonce)) {
+    throw new AgentBridgeError('unauthenticated', 'request already seen');
   }
 
   const agent = deps.store.getAgent(workspace, ref);
@@ -62,7 +80,7 @@ export async function authenticate(
 
   deps.store.recordNonce(
     ref,
-    timestamp,
+    nonce,
     new Date(deps.clock.now().getTime() + REPLAY_WINDOW_MS).toISOString(),
   );
   return agent;

@@ -509,16 +509,15 @@ export function openStore(path: string): SqliteStore {
       return num(res.changes) === 1;
     },
 
-    seenNonce(agent, timestamp) {
+    seenNonce(agent, nonce) {
       return (
-        db.prepare('SELECT 1 FROM nonces WHERE agent=? AND timestamp=?').get(agent, timestamp) !==
-        undefined
+        db.prepare('SELECT 1 FROM nonces WHERE agent=? AND nonce=?').get(agent, nonce) !== undefined
       );
     },
-    recordNonce(agent, timestamp, expiresAt) {
+    recordNonce(agent, nonce, expiresAt) {
       db.prepare(
-        'INSERT INTO nonces (agent, timestamp, expires_at) VALUES (?,?,?) ON CONFLICT DO NOTHING',
-      ).run(agent, timestamp, expiresAt);
+        'INSERT INTO nonces (agent, nonce, expires_at) VALUES (?,?,?) ON CONFLICT DO NOTHING',
+      ).run(agent, nonce, expiresAt);
     },
     pruneNonces(now) {
       db.prepare('DELETE FROM nonces WHERE expires_at <= ?').run(now);

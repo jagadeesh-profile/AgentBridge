@@ -10,8 +10,8 @@ export interface RegisterInput {
   name: string;
   capabilities: unknown;
   public_key: string;
-  webhook_url?: string;
-  scopes?: readonly Scope[];
+  webhook_url?: string | undefined;
+  scopes?: readonly Scope[] | undefined;
 }
 
 export function registerAgent(

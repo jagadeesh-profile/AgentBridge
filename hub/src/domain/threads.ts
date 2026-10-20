@@ -36,10 +36,10 @@ export function wrapUntrusted<T>(
 export interface PostMessageInput {
   thread: string;
   to: readonly string[];
-  body: unknown;
+  body?: unknown;
   side_effect: boolean;
   idempotency_key: string;
-  trace_id?: string;
+  trace_id?: string | undefined;
 }
 
 export function postMessage(deps: Deps, agent: AgentRecord, req: PostMessageInput): { id: string } {

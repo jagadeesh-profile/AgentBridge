@@ -189,9 +189,10 @@ export interface Store {
     response: string,
   ): boolean;
 
-  // replay window
-  seenNonce(agent: string, timestamp: string): boolean;
-  recordNonce(agent: string, timestamp: string, expiresAt: string): void;
+  // replay window. `nonce` is a hash of the request signature, not the
+  // timestamp: two distinct requests in one clock tick must both be allowed.
+  seenNonce(agent: string, nonce: string): boolean;
+  recordNonce(agent: string, nonce: string, expiresAt: string): void;
   pruneNonces(now: string): void;
 
   close(): void;

@@ -83,9 +83,12 @@ CREATE TABLE idempotency (
   PRIMARY KEY (workspace, agent, key)
 );
 
+-- Keyed on the request SIGNATURE, not the timestamp: two distinct requests in
+-- the same clock tick must both be allowed, while replaying one identical
+-- request must not.
 CREATE TABLE nonces (
-  agent TEXT NOT NULL, timestamp TEXT NOT NULL, expires_at TEXT NOT NULL,
-  PRIMARY KEY (agent, timestamp)
+  agent TEXT NOT NULL, nonce TEXT NOT NULL, expires_at TEXT NOT NULL,
+  PRIMARY KEY (agent, nonce)
 );
 CREATE INDEX nonces_expiry ON nonces (expires_at);
 `;

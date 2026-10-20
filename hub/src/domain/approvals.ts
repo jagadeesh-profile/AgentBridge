@@ -12,7 +12,7 @@ export interface ApprovalDecisionInput {
   payload_hash: string;
   issued_at: string;
   sig: string;
-  trace_id?: string;
+  trace_id?: string | undefined;
 }
 
 /**

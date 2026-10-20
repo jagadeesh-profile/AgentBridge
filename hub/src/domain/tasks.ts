@@ -21,10 +21,10 @@ export interface CreateTaskInput {
   thread: string;
   assignee: string;
   title: string;
-  payload: unknown;
+  payload?: unknown;
   side_effect: boolean;
-  due_at?: string;
-  trace_id?: string;
+  due_at?: string | undefined;
+  trace_id?: string | undefined;
 }
 
 export function createTask(deps: Deps, agent: AgentRecord, req: CreateTaskInput): TaskRecord {
@@ -94,7 +94,7 @@ export function updateTask(
   agent: AgentRecord,
   taskId: string,
   state: TaskState,
-  opts: { note?: string; traceId?: string } = {},
+  opts: { note?: string | undefined; traceId?: string | undefined } = {},
 ): TaskRecord {
   const ws = agent.workspace;
   const now = deps.clock.now().toISOString();
@@ -144,7 +144,7 @@ export function cancelTaskAsOwner(
   deps: Deps,
   workspace: string,
   taskId: string,
-  opts: { traceId?: string } = {},
+  opts: { traceId?: string | undefined } = {},
 ): TaskRecord {
   const now = deps.clock.now().toISOString();
 
