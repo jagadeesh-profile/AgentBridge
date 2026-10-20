@@ -152,6 +152,10 @@ importers:
       '@agentbridge/contracts':
         specifier: workspace:*
         version: link:../contracts
+    devDependencies:
+      '@noble/ed25519':
+        specifier: 2.3.0
+        version: 2.3.0
 
 packages:
 

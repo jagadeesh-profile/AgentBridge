@@ -20,5 +20,8 @@
   },
   "dependencies": {
     "@agentbridge/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@noble/ed25519": "2.3.0"
   }
 }
