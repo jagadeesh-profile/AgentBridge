@@ -10,7 +10,7 @@
     "build": "tsc -b",
     "dev": "docker compose up --build",
     "contracts": "pnpm --filter @agentbridge/contracts run generate && pnpm run contracts:drift",
-    "contracts:drift": "git diff --exit-code --stat contracts/generated",
+    "contracts:drift": "node scripts/check-contract-drift.mjs",
     "lint": "eslint . && prettier --check . && tsc -b",
     "test": "vitest run",
     "test-e2e": "vitest run --dir tests/e2e",

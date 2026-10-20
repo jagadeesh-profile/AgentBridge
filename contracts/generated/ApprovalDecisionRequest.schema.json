@@ -1,0 +1,43 @@
+{
+  "$ref": "#/definitions/ApprovalDecisionRequest",
+  "definitions": {
+    "ApprovalDecisionRequest": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "approve",
+            "reject"
+          ]
+        },
+        "payload_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sig": {
+          "type": "string",
+          "pattern": "^ed25519:[A-Za-z0-9+/]+={0,2}$",
+          "description": "Owner signature over JCS of {task, decision, payload_hash, issued_at}."
+        }
+      },
+      "required": [
+        "task",
+        "decision",
+        "payload_hash",
+        "issued_at",
+        "sig"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

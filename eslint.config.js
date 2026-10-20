@@ -36,4 +36,11 @@ export default tseslint.config(
       'no-console': 'off',
     },
   },
+  {
+    // Build and tooling scripts run under Node directly, outside any tsconfig.
+    files: ['**/*.mjs', 'scripts/**/*.js'],
+    languageOptions: {
+      globals: { process: 'readonly', console: 'readonly' },
+    },
+  },
 );

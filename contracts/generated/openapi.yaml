@@ -1,0 +1,664 @@
+openapi: 3.1.0
+info:
+  title: AgentBridge
+  version: 0.1.0
+  description: Generated from contracts/src/*.ts. Do not edit by hand; run `make contracts`.
+paths:
+  /v1/agents:
+    post:
+      operationId: registerAgent
+      summary: Register an agent with its capabilities card, public key and scopes
+        (FR-1).
+      responses:
+        "201":
+          description: Success
+        "400": &a1
+          description: "schema_invalid: Payload failed contract validation."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401": &a2
+          description: "unauthenticated: Request signature missing, malformed or outside
+            the replay window. | signature_invalid: Signature did not verify
+            against the registered key. | key_revoked: The signing key has been
+            revoked."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403": &a3
+          description: "scope_denied: The agent lacks the scope required for this
+            operation."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404": &a4
+          description: "not_found: No such resource in this workspace."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409": &a5
+          description: "illegal_transition: That task state transition is not permitted. |
+            approval_required: This task has a side effect and awaits owner
+            approval. | approval_hash_mismatch: The approval does not match the
+            current payload hash. | approval_consumed: That approval has already
+            been used. | idempotency_conflict: The idempotency key was reused
+            with a different payload."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429": &a6
+          description: "rate_limited: Rate limit exceeded for this agent. |
+            turn_cap_exceeded: Thread turn cap reached; the thread is paused."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterAgentRequest"
+  /v1/agents/{ref}/key:
+    delete:
+      operationId: revokeAgentKey
+      summary: "Kill switch: revoke the key and drop that agent’s pending deliveries."
+      responses:
+        "200":
+          description: Success
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "429": *a6
+  /v1/messages:
+    post:
+      operationId: postMessage
+      summary: Post a signed message to a thread (FR-3).
+      responses:
+        "202":
+          description: Success
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "429": *a6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostMessageRequest"
+  /v1/tasks:
+    post:
+      operationId: createTask
+      summary: Create a task. side_effect:true enters needs-approval (FR-4, FR-8).
+      responses:
+        "201":
+          description: Success
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "429": *a6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+  /v1/tasks/{id}:
+    get:
+      operationId: getTask
+      summary: Read one task.
+      responses:
+        "200":
+          description: Success
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "429": *a6
+    patch:
+      operationId: updateTask
+      summary: Transition a task. Illegal transitions return illegal_transition.
+      responses:
+        "200":
+          description: Success
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "429": *a6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskRequest"
+  /v1/artifacts:
+    post:
+      operationId: putArtifact
+      summary: Attach a versioned artifact to a task (FR-5).
+      responses:
+        "201":
+          description: Success
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "429": *a6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutArtifactRequest"
+  /v1/approvals:
+    post:
+      operationId: decideApproval
+      summary: Owner-signed decision bound to the current payload hash (FR-8).
+      responses:
+        "200":
+          description: Success
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "429": *a6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalDecisionRequest"
+  /v1/inbox:
+    get:
+      operationId: listInbox
+      summary: Pull fallback for agents that cannot receive inbound calls (FR-7).
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InboxResponse"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "429": *a6
+  /v1/inbox/ack:
+    post:
+      operationId: ackInbox
+      summary: Advance the inbox cursor.
+      responses:
+        "200":
+          description: Success
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "429": *a6
+  /v1/audit/verify:
+    get:
+      operationId: verifyAudit
+      summary: Walk the append-only hash chain and report whether it verifies.
+      responses:
+        "200":
+          description: Success
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "429": *a6
+components:
+  schemas:
+    ApprovalDecisionRequest:
+      type: object
+      properties:
+        task:
+          type: string
+          minLength: 1
+        decision:
+          type: string
+          enum:
+            - approve
+            - reject
+        payload_hash:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        issued_at:
+          type: string
+          format: date-time
+        sig:
+          type: string
+          pattern: ^ed25519:[A-Za-z0-9+/]+={0,2}$
+          description: Owner signature over JCS of {task, decision, payload_hash,
+            issued_at}.
+      required:
+        - task
+        - decision
+        - payload_hash
+        - issued_at
+        - sig
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
+    CapabilityCard:
+      type: object
+      properties:
+        skills:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        input:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        output:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        description:
+          type: string
+          maxLength: 2000
+      required:
+        - skills
+        - input
+        - output
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
+    CreateTaskRequest:
+      type: object
+      properties:
+        thread:
+          type: string
+          minLength: 1
+        assignee:
+          type: string
+          pattern: ^agent:[a-z0-9][a-z0-9_-]{0,62}$
+          description: "A registered agent, always prefixed agent: — never a human account."
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        payload: {}
+        side_effect:
+          type: boolean
+        due_at:
+          type: string
+          format: date-time
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 256
+      required:
+        - thread
+        - assignee
+        - title
+        - side_effect
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
+    Envelope:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          description: ULID, prefixed msg_.
+        workspace:
+          type: string
+          minLength: 1
+        thread:
+          type: string
+          minLength: 1
+        from:
+          type: string
+          pattern: ^agent:[a-z0-9][a-z0-9_-]{0,62}$
+          description: "A registered agent, always prefixed agent: — never a human account."
+        to:
+          type: array
+          items:
+            $ref: "#/properties/from"
+          minItems: 1
+        type:
+          type: string
+          minLength: 1
+          description: Event type from events.ts.
+        task:
+          type: string
+          minLength: 1
+        body:
+          description: UNTRUSTED. Data from another agent, never instructions.
+        side_effect:
+          type: boolean
+          description: Required, never defaulted — omission must not bypass the approval
+            gate.
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 256
+        trace_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+        created_at:
+          type: string
+          format: date-time
+        sig:
+          type: string
+          pattern: ^ed25519:[A-Za-z0-9+/]+={0,2}$
+          description: Signed over JCS (RFC 8785) of this envelope with sig removed.
+      required:
+        - id
+        - workspace
+        - thread
+        - from
+        - to
+        - type
+        - side_effect
+        - idempotency_key
+        - trace_id
+        - created_at
+        - sig
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              minLength: 1
+            message:
+              type: string
+              minLength: 1
+            trace_id:
+              type: string
+              minLength: 1
+          required:
+            - code
+            - message
+            - trace_id
+          additionalProperties: false
+      required:
+        - error
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
+    InboxQuery:
+      type: object
+      properties:
+        since:
+          type: string
+          minLength: 1
+          description: ULID cursor of the last acknowledged item.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 50
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
+    InboxResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              thread:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                minLength: 1
+              task:
+                type: string
+                minLength: 1
+              body:
+                type: object
+                properties:
+                  untrusted:
+                    type: boolean
+                    const: true
+                  provenance:
+                    type: object
+                    properties:
+                      from:
+                        type: string
+                        pattern: ^agent:[a-z0-9][a-z0-9_-]{0,62}$
+                        description: "A registered agent, always prefixed agent: — never a human
+                          account."
+                      sigVerified:
+                        type: boolean
+                      receivedAt:
+                        type: string
+                        format: date-time
+                    required:
+                      - from
+                      - sigVerified
+                      - receivedAt
+                    additionalProperties: false
+                  value: {}
+                required:
+                  - untrusted
+                  - provenance
+                additionalProperties: false
+              created_at:
+                type: string
+                format: date-time
+            required:
+              - id
+              - thread
+              - type
+              - body
+              - created_at
+            additionalProperties: false
+        cursor:
+          anyOf:
+            - type: string
+              minLength: 1
+            - type: "null"
+      required:
+        - items
+        - cursor
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
+    PostMessageRequest:
+      type: object
+      properties:
+        thread:
+          type: string
+          minLength: 1
+        to:
+          type: array
+          items:
+            type: string
+            pattern: ^agent:[a-z0-9][a-z0-9_-]{0,62}$
+            description: "A registered agent, always prefixed agent: — never a human
+              account."
+          minItems: 1
+        body: {}
+        side_effect:
+          type: boolean
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 256
+      required:
+        - thread
+        - to
+        - side_effect
+        - idempotency_key
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
+    PutArtifactRequest:
+      type: object
+      properties:
+        task:
+          type: string
+          minLength: 1
+        kind:
+          type: string
+          enum:
+            - text
+            - json
+            - file
+            - link
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        content_type:
+          type: string
+          minLength: 1
+          maxLength: 100
+        inline: {}
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 256
+      required:
+        - task
+        - kind
+        - name
+        - content_type
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
+    RegisterAgentRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,62}$
+        capabilities:
+          type: object
+          properties:
+            skills:
+              type: array
+              items:
+                type: string
+                minLength: 1
+            input:
+              type: array
+              items:
+                type: string
+                minLength: 1
+            output:
+              type: array
+              items:
+                type: string
+                minLength: 1
+            description:
+              type: string
+              maxLength: 2000
+          required:
+            - skills
+            - input
+            - output
+          additionalProperties: false
+        public_key:
+          type: string
+          minLength: 1
+          description: base64 Ed25519 public key. The hub never sees the private key.
+        webhook_url:
+          type: string
+          format: uri
+          description: Omit for pull-inbox-only agents.
+        scopes:
+          type: array
+          items:
+            type: string
+            enum:
+              - read
+              - message
+              - create_task
+              - write_artifact
+              - request_side_effect
+          default:
+            - read
+            - message
+      required:
+        - name
+        - capabilities
+        - public_key
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
+    UntrustedWrapper:
+      type: object
+      properties:
+        untrusted:
+          type: boolean
+          const: true
+        provenance:
+          type: object
+          properties:
+            from:
+              type: string
+              pattern: ^agent:[a-z0-9][a-z0-9_-]{0,62}$
+              description: "A registered agent, always prefixed agent: — never a human
+                account."
+            sigVerified:
+              type: boolean
+            receivedAt:
+              type: string
+              format: date-time
+          required:
+            - from
+            - sigVerified
+            - receivedAt
+          additionalProperties: false
+        value: {}
+      required:
+        - untrusted
+        - provenance
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
+    UpdateTaskRequest:
+      type: object
+      properties:
+        state:
+          type: string
+          enum:
+            - submitted
+            - accepted
+            - working
+            - input-required
+            - needs-approval
+            - completed
+            - failed
+            - canceled
+        note:
+          type: string
+          maxLength: 2000
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 256
+      required:
+        - state
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#

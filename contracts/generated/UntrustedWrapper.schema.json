@@ -1,0 +1,44 @@
+{
+  "$ref": "#/definitions/UntrustedWrapper",
+  "definitions": {
+    "UntrustedWrapper": {
+      "type": "object",
+      "properties": {
+        "untrusted": {
+          "type": "boolean",
+          "const": true
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "pattern": "^agent:[a-z0-9][a-z0-9_-]{0,62}$",
+              "description": "A registered agent, always prefixed agent: — never a human account."
+            },
+            "sigVerified": {
+              "type": "boolean"
+            },
+            "receivedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "from",
+            "sigVerified",
+            "receivedAt"
+          ],
+          "additionalProperties": false
+        },
+        "value": {}
+      },
+      "required": [
+        "untrusted",
+        "provenance"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

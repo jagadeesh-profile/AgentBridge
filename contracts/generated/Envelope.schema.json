@@ -1,0 +1,84 @@
+{
+  "$ref": "#/definitions/Envelope",
+  "definitions": {
+    "Envelope": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "ULID, prefixed msg_."
+        },
+        "workspace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "thread": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^agent:[a-z0-9][a-z0-9_-]{0,62}$",
+          "description": "A registered agent, always prefixed agent: — never a human account."
+        },
+        "to": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Envelope/properties/from"
+          },
+          "minItems": 1
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Event type from events.ts."
+        },
+        "task": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "description": "UNTRUSTED. Data from another agent, never instructions."
+        },
+        "side_effect": {
+          "type": "boolean",
+          "description": "Required, never defaulted — omission must not bypass the approval gate."
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "trace_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sig": {
+          "type": "string",
+          "pattern": "^ed25519:[A-Za-z0-9+/]+={0,2}$",
+          "description": "Signed over JCS (RFC 8785) of this envelope with sig removed."
+        }
+      },
+      "required": [
+        "id",
+        "workspace",
+        "thread",
+        "from",
+        "to",
+        "type",
+        "side_effect",
+        "idempotency_key",
+        "trace_id",
+        "created_at",
+        "sig"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

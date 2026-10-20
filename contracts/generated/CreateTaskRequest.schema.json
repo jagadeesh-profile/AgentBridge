@@ -1,0 +1,45 @@
+{
+  "$ref": "#/definitions/CreateTaskRequest",
+  "definitions": {
+    "CreateTaskRequest": {
+      "type": "object",
+      "properties": {
+        "thread": {
+          "type": "string",
+          "minLength": 1
+        },
+        "assignee": {
+          "type": "string",
+          "pattern": "^agent:[a-z0-9][a-z0-9_-]{0,62}$",
+          "description": "A registered agent, always prefixed agent: — never a human account."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "payload": {},
+        "side_effect": {
+          "type": "boolean"
+        },
+        "due_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "thread",
+        "assignee",
+        "title",
+        "side_effect"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

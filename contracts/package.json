@@ -13,11 +13,16 @@
   ],
   "scripts": {
     "build": "tsc -b",
+    "generate": "tsc -b && node scripts/generate.mjs",
     "test": "vitest run --dir src",
     "lint": "eslint src"
   },
   "dependencies": {
-    "@noble/ed25519": "^2.3.0",
-    "zod": "^3.25.76"
+    "@noble/ed25519": "2.3.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "yaml": "2.8.1",
+    "zod-to-json-schema": "3.24.6"
   }
 }

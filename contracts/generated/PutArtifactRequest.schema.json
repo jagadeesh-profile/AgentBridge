@@ -1,0 +1,47 @@
+{
+  "$ref": "#/definitions/PutArtifactRequest",
+  "definitions": {
+    "PutArtifactRequest": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "text",
+            "json",
+            "file",
+            "link"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "content_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "inline": {},
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "task",
+        "kind",
+        "name",
+        "content_type"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
