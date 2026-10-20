@@ -33,6 +33,9 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
+# superpowers execution scratch (ledger, briefs, review packages)
+.superpowers/
+
 # logs
 *.log
 npm-debug.log*

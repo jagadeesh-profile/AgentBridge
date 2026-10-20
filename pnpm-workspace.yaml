@@ -1,0 +1,8 @@
+packages:
+  - contracts
+  - hub
+  - delivery
+  - sdk/typescript
+  - adapters/*
+  - cli
+  - examples/*

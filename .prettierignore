@@ -1,0 +1,10 @@
+dist/
+node_modules/
+pnpm-lock.yaml
+contracts/generated/
+.superpowers/
+
+# Prose is authored, not generated. Prettier reflows markdown tables and
+# paragraphs, which churns the PRD, the spec, the plan and the agent briefs
+# without improving them. Code and config are formatted; documents are not.
+*.md
