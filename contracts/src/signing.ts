@@ -1,12 +1,22 @@
-import { createHash } from 'node:crypto';
 import * as ed from '@noble/ed25519';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { canonicalize } from './canonical.js';
 import type { Envelope } from './envelope.js';
 
 const PREFIX = 'ed25519:';
 
+/**
+ * SHA-256 over the UTF-8 bytes of `input`.
+ *
+ * `@noble/hashes` rather than `node:crypto` so this module runs unchanged in a
+ * browser: the owner console must recompute an approval's payload hash from
+ * the payload it actually displayed, rather than trust the hash the hub sent.
+ * A console that signed the hub's hash would approve whatever the hub said,
+ * which is the one thing the gate exists to prevent.
+ */
 export function sha256Hex(input: string): string {
-  return createHash('sha256').update(input, 'utf8').digest('hex');
+  return bytesToHex(sha256(new TextEncoder().encode(input)));
 }
 
 /** The hash an approval is bound to. See spec §5.4. */
@@ -96,6 +106,44 @@ export function registrationDescriptor(r: {
     [...r.scopes].sort().join(','),
     r.webhookUrl === undefined ? '-' : `url:${r.webhookUrl}`,
     r.issuedAt,
+  ].join('\n');
+}
+
+/**
+ * Canonical descriptor for an owner-authenticated request (ADR 0006).
+ *
+ * The owner is not an agent and has no agent key, so owner-facing routes —
+ * the approval decision, the list of what awaits one — verify against the
+ * owner public key instead. Before this existed the CLI borrowed an agent's
+ * identity to carry those requests, which meant the console would have had to
+ * hold an agent key as well as the owner key.
+ *
+ * `workspace` is bound here but not in `requestDescriptor`. For an agent that
+ * is safe: the agent exists in exactly one workspace, so the lookup fails
+ * anywhere else. The owner has no such lookup — the header alone would decide
+ * whose workspace is acted on — so it must be signed.
+ *
+ * The leading version tag gives domain separation: an agent signature can
+ * never be replayed as an owner signature, nor an enrolment as either.
+ */
+export function ownerRequestDescriptor(r: {
+  method: string;
+  path: string;
+  query: Record<string, string | string[]>;
+  body: string;
+  workspace: string;
+  issuedAt: string;
+}): string {
+  return [
+    'agentbridge-owner-v1',
+    r.workspace,
+    requestDescriptor({
+      method: r.method,
+      path: r.path,
+      query: r.query,
+      body: r.body,
+      timestamp: r.issuedAt,
+    }),
   ].join('\n');
 }
 

@@ -5,8 +5,7 @@ import * as ed from '@noble/ed25519';
 import { buildApp } from '@agentbridge/hub/http';
 import { makeFakes, type Fakes } from '@agentbridge/hub/ports/fakes';
 import { makeWorker } from '@agentbridge/delivery';
-import { canonicalize, payloadHash } from '@agentbridge/contracts';
-import { Client } from '@agentbridge/sdk';
+import { Client, OwnerClient } from '@agentbridge/sdk';
 import { museHandler } from './handler.js';
 import { startPullMuse } from './modes/pull.js';
 import { startSdkMuse } from './modes/sdk.js';
@@ -79,23 +78,13 @@ const museOpts = () => ({
   privateKey: musePriv,
 });
 
+// The owner acts as the owner (ADR 0006): one key, no borrowed agent, and
+// the queue is discovered rather than assumed.
 async function ownerApprove(taskId: string, decision: 'approve' | 'reject' = 'approve') {
-  const task = await claude.getTask(taskId);
-  const issuedAt = new Date().toISOString();
-  const hash = payloadHash(task.payload);
-  const sig = await ed.signAsync(
-    new TextEncoder().encode(
-      canonicalize({ task: taskId, decision, payload_hash: hash, issued_at: issuedAt }),
-    ),
-    ownerPriv,
-  );
-  return claude.decideApproval({
-    task: taskId,
-    decision,
-    payloadHash: hash,
-    issuedAt,
-    sig: `ed25519:${Buffer.from(sig).toString('base64')}`,
-  });
+  const owner = new OwnerClient({ baseUrl, workspace: WORKSPACE, privateKey: ownerPriv });
+  const task = (await owner.listPendingApprovals()).find((t) => t.id === taskId);
+  if (task === undefined) throw new Error(`${taskId} is not awaiting approval`);
+  return owner.decide(task, decision);
 }
 
 describe('the handler is transport-independent', () => {

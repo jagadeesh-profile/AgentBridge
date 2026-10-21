@@ -136,6 +136,16 @@ export interface Store {
   putTask(t: TaskRecord): void;
   getTask(workspace: string, id: string): TaskRecord | null;
   setTaskState(workspace: string, id: string, state: TaskState, updatedAt: string): void;
+  /**
+   * Oldest first, so the owner's approval queue is FIFO and the task that has
+   * been blocking longest is the one they see at the top. `state: null` means
+   * no filter.
+   */
+  listTasksByState(
+    workspace: string,
+    state: TaskState | null,
+    limit: number,
+  ): readonly TaskRecord[];
 
   // artifacts
   putArtifact(a: ArtifactRecord): void;

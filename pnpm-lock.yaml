@@ -171,6 +171,9 @@ importers:
       '@noble/ed25519':
         specifier: 2.3.0
         version: 2.3.0
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
       zod:
         specifier: 3.25.76
         version: 3.25.76
@@ -409,6 +412,10 @@ packages:
 
   '@noble/ed25519@2.3.0':
     resolution: {integrity: sha512-M7dvXL2B92/M7dw9+gzuydL8qn/jiqNHaoR3Q+cb1q1GHV7uwE17WCyFMG+Y+TZb5izcaXk5TdJRrDUxHXL78A==}
+
+  '@noble/hashes@2.4.0':
+    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
+    engines: {node: '>= 20.19.0'}
 
   '@opentelemetry/api@1.10.0':
     resolution: {integrity: sha512-lMkyes8iHrG+mk6WH7X70MdCLI2RS0FwNBY1PyQ8UemaijE2m5mv5A0Niy3HtbYTFrgkUEQjFMXmSAk2hQDuPQ==}
@@ -1813,6 +1820,8 @@ snapshots:
       - supports-color
 
   '@noble/ed25519@2.3.0': {}
+
+  '@noble/hashes@2.4.0': {}
 
   '@opentelemetry/api@1.10.0': {}
 

@@ -7,8 +7,8 @@ import * as ed from '@noble/ed25519';
 import { ulid } from 'ulid';
 import { buildApp, openBlobStore, openStore, type SqliteStore } from '@agentbridge/hub';
 import { makeWorker, type Worker } from '@agentbridge/delivery';
-import { canonicalize, payloadHash } from '@agentbridge/contracts';
-import { Client } from '@agentbridge/sdk';
+import { canonicalize, ownerRequestDescriptor, signDescriptor } from '@agentbridge/contracts';
+import { Client, OwnerClient } from '@agentbridge/sdk';
 
 export interface Harness {
   baseUrl: string;
@@ -93,6 +93,8 @@ export async function startHarness(workspace = 'ws_e2e'): Promise<Harness> {
     return { issuedAt, sig: `ed25519:${Buffer.from(sig).toString('base64')}` };
   };
 
+  const owner = new OwnerClient({ baseUrl, workspace, privateKey: ownerPriv });
+
   const worker = makeWorker({ store, clock }, {});
 
   return {
@@ -105,30 +107,49 @@ export async function startHarness(workspace = 'ws_e2e'): Promise<Harness> {
     museKey,
     registerAgent,
 
+    // The owner acts with the owner key alone (ADR 0006).
     ownerApprove: async (taskId, decision = 'approve') => {
-      const task = await claude.getTask(taskId);
-      const hash = payloadHash(task.payload);
-      const { issuedAt, sig } = await signDecision(taskId, decision, hash);
-      return claude.decideApproval({ task: taskId, decision, payloadHash: hash, issuedAt, sig });
+      const task = (await owner.listPendingApprovals()).find((t) => t.id === taskId);
+      if (task === undefined) throw new Error(`${taskId} is not awaiting approval`);
+      return owner.decide(task, decision);
     },
 
+    // Deliberately bypasses OwnerClient.decide, which always recomputes the
+    // hash: this test needs to put a chosen hash on the wire to prove the hub
+    // enforces the binding itself rather than relying on a well-behaved client.
     ownerApproveWithHash: async (taskId, hash) => {
       const { issuedAt, sig } = await signDecision(taskId, 'approve', hash);
-      try {
-        await claude.decideApproval({
-          task: taskId,
-          decision: 'approve',
-          payloadHash: hash,
+      const body = JSON.stringify({
+        task: taskId,
+        decision: 'approve',
+        payload_hash: hash,
+        issued_at: issuedAt,
+        sig,
+      });
+      const requestSig = await signDescriptor(
+        ownerRequestDescriptor({
+          method: 'POST',
+          path: '/v1/approvals',
+          query: {},
+          body,
+          workspace,
           issuedAt,
-          sig,
-        });
-        return { status: 200, code: null };
-      } catch (err) {
-        const code = err instanceof Error && 'code' in err ? String(err.code) : null;
-        const status =
-          err instanceof Error && 'status' in err ? Number(err.status) : code === null ? 500 : 409;
-        return { status, code };
-      }
+        }),
+        ownerPriv,
+      );
+      const res = await fetch(`${baseUrl}/v1/approvals`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-agentbridge-workspace': workspace,
+          'x-agentbridge-timestamp': issuedAt,
+          'x-agentbridge-owner-signature': requestSig,
+        },
+        body,
+      });
+      if (res.ok) return { status: res.status, code: null };
+      const parsed = (await res.json()) as { error?: { code?: string } };
+      return { status: res.status, code: parsed.error?.code ?? null };
     },
 
     stop: async () => {

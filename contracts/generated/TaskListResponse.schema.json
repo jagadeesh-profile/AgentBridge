@@ -1,0 +1,97 @@
+{
+  "$ref": "#/definitions/TaskListResponse",
+  "definitions": {
+    "TaskListResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "thread": {
+                "type": "string",
+                "minLength": 1
+              },
+              "creator": {
+                "type": "string",
+                "pattern": "^agent:[a-z0-9][a-z0-9_-]{0,62}$",
+                "description": "A registered agent, always prefixed agent: — never a human account."
+              },
+              "assignee": {
+                "$ref": "#/definitions/TaskListResponse/properties/items/items/properties/creator"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "payload": {},
+              "payload_hash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "submitted",
+                  "accepted",
+                  "working",
+                  "input-required",
+                  "needs-approval",
+                  "completed",
+                  "failed",
+                  "canceled"
+                ]
+              },
+              "side_effect": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "thread",
+              "creator",
+              "assignee",
+              "title",
+              "payload_hash",
+              "state",
+              "side_effect",
+              "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "cursor"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

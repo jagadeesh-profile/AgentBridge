@@ -1,6 +1,9 @@
 import * as ed from '@noble/ed25519';
 import {
   ERROR_CATALOG,
+  canonicalize,
+  ownerRequestDescriptor,
+  payloadHash,
   registrationDescriptor,
   requestDescriptor,
   signDescriptor,
@@ -551,5 +554,163 @@ describe('registration is owner-signed', () => {
     );
     expect(res.statusCode).toBe(201);
     expect((res.json() as { webhook_secret: string }).webhook_secret).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('owner-authenticated routes (ADR 0006)', () => {
+  async function ownerSigned(
+    method: string,
+    path: string,
+    bodyObj?: unknown,
+    over: {
+      signWith?: Uint8Array;
+      workspace?: string;
+      signedWorkspace?: string;
+    } = {},
+  ) {
+    const body = bodyObj === undefined ? '' : JSON.stringify(bodyObj);
+    const timestamp = deps.clock.now().toISOString();
+    const [bare, qs] = path.split('?');
+    const query: Record<string, string> = {};
+    if (qs !== undefined) for (const [k, v] of new URLSearchParams(qs)) query[k] = v;
+    const workspace = over.workspace ?? 'ws';
+    const sig = await signDescriptor(
+      ownerRequestDescriptor({
+        method,
+        path: bare ?? path,
+        query,
+        body,
+        workspace: over.signedWorkspace ?? workspace,
+        issuedAt: timestamp,
+      }),
+      over.signWith ?? ownerPriv,
+    );
+    return {
+      method,
+      url: path,
+      ...(bodyObj === undefined ? {} : { payload: body }),
+      headers: {
+        'content-type': 'application/json',
+        'x-agentbridge-workspace': workspace,
+        'x-agentbridge-timestamp': timestamp,
+        'x-agentbridge-owner-signature': sig,
+      },
+    };
+  }
+
+  function gated(id: string, payload: unknown = { to: 'a@b.com' }, state = 'needs-approval') {
+    deps.store.putTask({
+      id,
+      workspace: 'ws',
+      thread: 'thr_1',
+      creator: 'agent:claude',
+      assignee: 'agent:muse',
+      title: 'send email',
+      payload,
+      payloadHash: payloadHash(payload),
+      state: state as 'needs-approval',
+      sideEffect: true,
+      dueAt: null,
+      createdAt: '2026-10-20T12:00:00.000Z',
+      updatedAt: '2026-10-20T12:00:00.000Z',
+    });
+  }
+
+  describe('GET /v1/tasks', () => {
+    it('lists what awaits a decision, for an owner-signed request', async () => {
+      gated('tsk_a');
+      gated('tsk_b', { to: 'c@d.com' }, 'completed');
+      const res = await app.inject(await ownerSigned('GET', '/v1/tasks?state=needs-approval'));
+      expect(res.statusCode).toBe(200);
+      const items = res.json().items as { id: string }[];
+      expect(items.map((t) => t.id)).toEqual(['tsk_a']);
+    });
+
+    it('returns the payload AND its hash, so the console can recompute and compare', async () => {
+      gated('tsk_a', { to: 'recruiter@example.com' });
+      const res = await app.inject(await ownerSigned('GET', '/v1/tasks?state=needs-approval'));
+      const item = (res.json().items as { payload: unknown; payload_hash: string }[])[0];
+      expect(item?.payload).toEqual({ to: 'recruiter@example.com' });
+      expect(item?.payload_hash).toBe(payloadHash({ to: 'recruiter@example.com' }));
+    });
+
+    it('REFUSES an agent signature — this is owner-only', async () => {
+      gated('tsk_a');
+      const res = await app.inject(await signed('GET', '/v1/tasks?state=needs-approval'));
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('REFUSES an unsigned request', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/tasks?state=needs-approval',
+        headers: { 'x-agentbridge-workspace': 'ws' },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('NEVER returns another workspace, even when the header says so', async () => {
+      gated('tsk_a');
+      const res = await app.inject(
+        await ownerSigned('GET', '/v1/tasks?state=needs-approval', undefined, {
+          workspace: 'ws_other',
+        }),
+      );
+      expect(res.json().items).toEqual([]);
+    });
+  });
+
+  describe('POST /v1/approvals', () => {
+    async function decision(task: string, payload: unknown, decisionKind = 'approve') {
+      const issued_at = deps.clock.now().toISOString();
+      const sig = await signDescriptor(
+        canonicalize({
+          task,
+          decision: decisionKind,
+          payload_hash: payloadHash(payload),
+          issued_at,
+        }),
+        ownerPriv,
+      );
+      return { task, decision: decisionKind, payload_hash: payloadHash(payload), issued_at, sig };
+    }
+
+    it('accepts an owner-signed request with NO agent identity at all', async () => {
+      gated('tsk_a');
+      const body = await decision('tsk_a', { to: 'a@b.com' });
+      const res = await app.inject(await ownerSigned('POST', '/v1/approvals', body));
+      expect(res.statusCode).toBe(200);
+      expect(deps.store.getTask('ws', 'tsk_a')?.state).toBe('submitted');
+    });
+
+    it('REFUSES an agent-signed approval, so an agent cannot clear its own gate', async () => {
+      gated('tsk_a');
+      const body = await decision('tsk_a', { to: 'a@b.com' });
+      const res = await app.inject(await signed('POST', '/v1/approvals', body));
+      expect(res.statusCode).toBe(401);
+      expect(deps.store.getTask('ws', 'tsk_a')?.state).toBe('needs-approval');
+    });
+
+    it('REFUSES a request signed by a key that is not the owner key', async () => {
+      gated('tsk_a');
+      const body = await decision('tsk_a', { to: 'a@b.com' });
+      const res = await app.inject(
+        await ownerSigned('POST', '/v1/approvals', body, {
+          signWith: ed.utils.randomPrivateKey(),
+        }),
+      );
+      expect(res.statusCode).toBe(401);
+      expect(deps.store.getTask('ws', 'tsk_a')?.state).toBe('needs-approval');
+    });
+
+    it('still enforces the payload-hash binding under the new auth', async () => {
+      gated('tsk_a', { to: 'a@b.com' });
+      // Signed for a different payload than the task actually holds.
+      const body = await decision('tsk_a', { to: 'attacker@evil.com' });
+      const res = await app.inject(await ownerSigned('POST', '/v1/approvals', body));
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe('approval_hash_mismatch');
+      expect(deps.store.getTask('ws', 'tsk_a')?.state).toBe('needs-approval');
+    });
   });
 });

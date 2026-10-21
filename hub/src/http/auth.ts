@@ -1,5 +1,6 @@
 import {
   AgentBridgeError,
+  ownerRequestDescriptor,
   requestDescriptor,
   sha256Hex,
   verifyDescriptor,
@@ -45,6 +46,65 @@ export interface RawRequest {
   query: Record<string, string | string[]>;
   body: string;
   headers: Record<string, string | undefined>;
+}
+
+/**
+ * Authenticates the OWNER rather than an agent (ADR 0006), and returns the
+ * workspace the signature authorises.
+ *
+ * The owner has no agent key, so before this the CLI borrowed an agent's
+ * identity to carry owner operations — which would have forced the console to
+ * hold an agent key alongside the owner key, and left the audit log naming
+ * whichever agent was borrowed.
+ *
+ * Returning the workspace rather than reading it from the header at the call
+ * site is deliberate: the header is attacker-controlled, and only the signed
+ * value may decide whose workspace is acted on.
+ */
+export async function authenticateOwner(
+  deps: Pick<Deps, 'store' | 'clock'>,
+  ownerPublicKey: Uint8Array,
+  raw: RawRequest,
+): Promise<string> {
+  const workspace = raw.headers['x-agentbridge-workspace'];
+  const timestamp = raw.headers['x-agentbridge-timestamp'];
+  const signature = raw.headers['x-agentbridge-owner-signature'];
+
+  if (!workspace || !timestamp || !signature) {
+    throw new AgentBridgeError('unauthenticated', 'missing owner auth headers');
+  }
+
+  assertFreshTimestamp(deps.clock.now(), timestamp, 'request timestamp');
+
+  // Replay first, so a resubmitted decision fails as a replay rather than as
+  // whatever the handler would have said about an already-decided task.
+  const nonce = sha256Hex(signature);
+  if (deps.store.seenNonce('owner', nonce)) {
+    throw new AgentBridgeError('unauthenticated', 'owner request already used');
+  }
+
+  const descriptor = ownerRequestDescriptor({
+    method: raw.method,
+    path: raw.path,
+    query: raw.query,
+    body: raw.body,
+    workspace,
+    issuedAt: timestamp,
+  });
+
+  if (!(await verifyDescriptor(descriptor, signature, ownerPublicKey))) {
+    // `unauthenticated`, not `signature_invalid`: for an agent the latter is
+    // informative because the hub knows which key it checked. Here a bad
+    // signature and a non-owner caller are the same thing.
+    throw new AgentBridgeError('unauthenticated', 'owner signature rejected');
+  }
+
+  deps.store.recordNonce(
+    'owner',
+    nonce,
+    new Date(deps.clock.now().getTime() + REPLAY_WINDOW_MS).toISOString(),
+  );
+  return workspace;
 }
 
 /**

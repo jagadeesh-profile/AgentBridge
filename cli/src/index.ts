@@ -2,6 +2,7 @@
 import { parseArgs } from 'node:util';
 import {
   approve,
+  pending,
   auditVerify,
   inbox,
   keygen,
@@ -15,8 +16,8 @@ const USAGE = `agentbridge — AgentBridge owner CLI
   agentbridge keygen   --out <path> [--force]
   agentbridge register --name <slug> --key <path> --owner-key <path>
                        [--scopes a,b] [--webhook-url <url>] [--skills a,b]
-  agentbridge approve  --task <id> --owner-key <path> --agent <ref> --agent-key <path>
-                       [--reject] --yes
+  agentbridge pending  --owner-key <path>
+  agentbridge approve  --task <id> --owner-key <path> [--reject] --yes
   agentbridge revoke   --ref <agent:slug> --agent <ref> --agent-key <path> --yes
   agentbridge inbox    --agent <ref> --agent-key <path> [--limit n]
   agentbridge audit verify --agent <ref> --agent-key <path>
@@ -103,12 +104,15 @@ async function main(argv: string[]): Promise<void> {
       });
       return;
 
+    case 'pending':
+      await pending(e, { ownerKeyPath: need(values['owner-key'], '--owner-key') });
+      return;
+
     case 'approve':
+      // No --agent/--agent-key: the owner key alone authenticates now (ADR 0006).
       await approve(e, {
         task: need(values.task, '--task'),
         ownerKeyPath: need(values['owner-key'], '--owner-key'),
-        agentRef: agentRef(),
-        agentKeyPath: agentKey(),
         decision: values.reject === true ? 'reject' : 'approve',
         ...(values.yes === true ? { yes: true } : {}),
       });

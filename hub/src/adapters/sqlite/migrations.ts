@@ -93,6 +93,15 @@ CREATE TABLE nonces (
 CREATE INDEX nonces_expiry ON nonces (expires_at);
 `;
 
+/**
+ * The owner's approval queue reads tasks by state, oldest first. `tasks_assignee`
+ * leads with `assignee`, so it cannot serve a query that does not know one.
+ */
+const MIGRATION_002 = `
+CREATE INDEX IF NOT EXISTS tasks_state ON tasks (workspace, state, created_at, id);
+`;
+
 export const MIGRATIONS: readonly { readonly id: number; readonly sql: string }[] = [
   { id: 1, sql: MIGRATION_001 },
+  { id: 2, sql: MIGRATION_002 },
 ];

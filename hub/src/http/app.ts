@@ -8,6 +8,7 @@ import {
   PostMessageRequest,
   PutArtifactRequest,
   RegisterAgentRequest,
+  TaskListQuery,
   UpdateTaskRequest,
   payloadHash,
   registrationDescriptor,
@@ -24,7 +25,7 @@ import { cancelTaskAsOwner, createTask, updateTask } from '../domain/tasks.js';
 import { postMessage } from '../domain/threads.js';
 import { ackInbox, listInbox } from '../domain/inbox.js';
 import type { AgentRecord, BlobStore, Clock, IdGen, Store } from '../ports/index.js';
-import { REPLAY_WINDOW_MS, assertFreshTimestamp, authenticate } from './auth.js';
+import { REPLAY_WINDOW_MS, assertFreshTimestamp, authenticate, authenticateOwner } from './auth.js';
 import { assertDepth, registerErrorHandler } from './errors.js';
 import { withIdempotency } from './idempotency.js';
 import { loggerOptions } from './logger.js';
@@ -49,6 +50,8 @@ export interface AppOptions {
 declare module 'fastify' {
   interface FastifyRequest {
     agent?: AgentRecord;
+    /** Set only on owner-authenticated routes, and only from the signature. */
+    ownerWorkspace?: string;
     rawBodyText?: string;
     traceId?: string;
     span?: OtelSpan | null;
@@ -57,6 +60,20 @@ declare module 'fastify' {
 
 const AUTHENTICATED_PREFIX = '/v1/';
 const OPEN_PATHS = new Set(['/healthz', '/v1/agents']);
+
+/**
+ * Routes the OWNER performs, authenticated by the owner key (ADR 0006) rather
+ * than by a borrowed agent identity. Matched on method *and* path: POST
+ * /v1/tasks is an agent creating work, GET /v1/tasks is the owner reading the
+ * approval queue.
+ */
+const OWNER_ROUTES: readonly (readonly [string, string])[] = [
+  ['POST', '/v1/approvals'],
+  ['GET', '/v1/tasks'],
+];
+
+const isOwnerRoute = (method: string, path: string): boolean =>
+  OWNER_ROUTES.some(([m, p]) => m === method && p === path);
 
 export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
@@ -146,6 +163,20 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
       return;
     }
 
+    // Owner-only routes (ADR 0006). `req.agent` stays undefined on these, so a
+    // handler that reached for an agent would fail rather than silently act as
+    // one; the workspace comes from the signature, never from the header.
+    if (isOwnerRoute(req.method, path)) {
+      req.ownerWorkspace = await authenticateOwner(deps, deps.ownerPublicKey, {
+        method: req.method,
+        path,
+        query: (req.query ?? {}) as Record<string, string | string[]>,
+        body: req.rawBodyText ?? '',
+        headers: req.headers as Record<string, string | undefined>,
+      });
+      return;
+    }
+
     const bodyObj = (req.body ?? {}) as { idempotency_key?: unknown };
     const safeMethod = req.method === 'GET' || req.method === 'HEAD';
     const hasIdempotencyKey = typeof bodyObj.idempotency_key === 'string';
@@ -217,6 +248,16 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
   const requireAgent = (req: FastifyRequest): AgentRecord => {
     if (req.agent === undefined) throw new AgentBridgeError('unauthenticated');
     return req.agent;
+  };
+
+  /**
+   * The workspace the OWNER's signature authorised. Never `workspaceOf`, which
+   * reads the header: on an owner route the header is only a hint, and taking
+   * it would let a valid signature for one workspace act on another.
+   */
+  const requireOwner = (req: FastifyRequest): string => {
+    if (req.ownerWorkspace === undefined) throw new AgentBridgeError('unauthenticated');
+    return req.ownerWorkspace;
   };
 
   const workspaceOf = (req: FastifyRequest): string => {
@@ -327,8 +368,33 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
     return out;
   });
 
+  app.get('/v1/tasks', async (req) => {
+    const ws = requireOwner(req);
+    const q = TaskListQuery.parse(req.query ?? {});
+    const items = deps.store.listTasksByState(ws, q.state ?? null, q.limit);
+    return {
+      items: items.map((t) => ({
+        id: t.id,
+        thread: t.thread,
+        creator: t.creator,
+        assignee: t.assignee,
+        title: t.title,
+        payload: t.payload,
+        payload_hash: t.payloadHash,
+        state: t.state,
+        side_effect: t.sideEffect,
+        created_at: t.createdAt,
+        updated_at: t.updatedAt,
+      })),
+      // No pagination beyond `limit` in Phase 0: the approval queue is the
+      // owner's own backlog, and a workspace with 200 waiting decisions has a
+      // bigger problem than paging.
+      cursor: null,
+    };
+  });
+
   app.post('/v1/approvals', async (req) => {
-    const ws = workspaceOf(req);
+    const ws = requireOwner(req);
     const parsed = ApprovalDecisionRequest.parse(req.body);
     return decideApproval(deps, deps.ownerPublicKey, ws, {
       ...parsed,

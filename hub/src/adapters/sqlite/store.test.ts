@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openStore, type SqliteStore } from './store.js';
 import type { AgentRecord } from '../../ports/index.js';
+import type { TaskState } from '@agentbridge/contracts';
 
 const open: SqliteStore[] = [];
 function store(): SqliteStore {
@@ -187,5 +188,69 @@ describe('sqlite store', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('listTasksByState', () => {
+  function task(id: string, state: TaskState, createdAt: string, workspace = 'ws') {
+    return {
+      id,
+      workspace,
+      thread: 'thr_1',
+      creator: 'agent:claude',
+      assignee: 'agent:muse',
+      title: `t-${id}`,
+      payload: { to: 'a@b.com' },
+      payloadHash: 'f'.repeat(64),
+      state,
+      sideEffect: true,
+      dueAt: null,
+      createdAt,
+      updatedAt: createdAt,
+    };
+  }
+
+  it('returns only the requested state', () => {
+    const s = store();
+    s.putTask(task('tsk_1', 'needs-approval', '2026-10-20T00:00:01.000Z'));
+    s.putTask(task('tsk_2', 'submitted', '2026-10-20T00:00:02.000Z'));
+    s.putTask(task('tsk_3', 'needs-approval', '2026-10-20T00:00:03.000Z'));
+    expect(s.listTasksByState('ws', 'needs-approval', 10).map((t) => t.id)).toEqual([
+      'tsk_1',
+      'tsk_3',
+    ]);
+  });
+
+  it('NEVER leaks another workspace, which is the whole isolation boundary', () => {
+    const s = store();
+    s.putTask(task('tsk_mine', 'needs-approval', '2026-10-20T00:00:01.000Z', 'ws'));
+    s.putTask(task('tsk_theirs', 'needs-approval', '2026-10-20T00:00:02.000Z', 'ws_other'));
+    expect(s.listTasksByState('ws', 'needs-approval', 10).map((t) => t.id)).toEqual(['tsk_mine']);
+  });
+
+  it('returns every state when the filter is null', () => {
+    const s = store();
+    s.putTask(task('tsk_1', 'needs-approval', '2026-10-20T00:00:01.000Z'));
+    s.putTask(task('tsk_2', 'completed', '2026-10-20T00:00:02.000Z'));
+    expect(s.listTasksByState('ws', null, 10)).toHaveLength(2);
+  });
+
+  it('honours the limit and orders oldest first, so the queue is FIFO', () => {
+    const s = store();
+    for (let i = 1; i <= 5; i += 1) {
+      s.putTask(task(`tsk_${i}`, 'needs-approval', `2026-10-20T00:00:0${i}.000Z`));
+    }
+    expect(s.listTasksByState('ws', 'needs-approval', 2).map((t) => t.id)).toEqual([
+      'tsk_1',
+      'tsk_2',
+    ]);
+  });
+
+  it('round-trips the payload and hash the approval will be bound to', () => {
+    const s = store();
+    s.putTask(task('tsk_1', 'needs-approval', '2026-10-20T00:00:01.000Z'));
+    const got = s.listTasksByState('ws', 'needs-approval', 10)[0];
+    expect(got?.payload).toEqual({ to: 'a@b.com' });
+    expect(got?.payloadHash).toBe('f'.repeat(64));
   });
 });

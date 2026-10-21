@@ -2,11 +2,13 @@ import { canonicalize, payloadHash } from '@agentbridge/contracts';
 import * as ed from '@noble/ed25519';
 import {
   Client,
+  OwnerClient,
   generateKeyPair,
   loadKey,
   publicKeyBase64,
   registerAgent as sdkRegisterAgent,
   saveKey,
+  type PendingTask,
 } from '@agentbridge/sdk';
 
 export interface Env {
@@ -15,6 +17,31 @@ export interface Env {
   /** Where output goes. Injected so tests assert on it instead of stdout. */
   write: (line: string) => void;
   fetch?: typeof fetch;
+}
+
+/** One place builds the owner client, so every owner command signs alike. */
+async function ownerClient(env: Env, ownerKeyPath: string): Promise<OwnerClient> {
+  return new OwnerClient({
+    baseUrl: env.baseUrl,
+    workspace: env.workspace,
+    privateKey: await loadKey(ownerKeyPath),
+    ...(env.fetch === undefined ? {} : { fetch: env.fetch }),
+  });
+}
+
+/* ----------------------------------------------------------------- pending */
+
+/** The approval queue. Before ADR 0006 there was no way to ask for it. */
+export async function pending(env: Env, opts: { ownerKeyPath: string }): Promise<PendingTask[]> {
+  const items = await (await ownerClient(env, opts.ownerKeyPath)).listPendingApprovals();
+  if (items.length === 0) {
+    env.write('nothing awaiting approval');
+    return items;
+  }
+  for (const t of items) {
+    env.write(`${t.id}  ${t.title}  -> ${t.assignee}  (since ${t.createdAt})`);
+  }
+  return items;
 }
 
 /* ------------------------------------------------------------------ keygen */
@@ -95,21 +122,23 @@ export async function approve(
   opts: {
     task: string;
     ownerKeyPath: string;
-    agentRef: string;
-    agentKeyPath: string;
     decision?: 'approve' | 'reject' | undefined;
     yes?: boolean | undefined;
   },
 ): Promise<ApproveResult> {
-  const client = new Client({
-    baseUrl: env.baseUrl,
-    workspace: env.workspace,
-    agent: opts.agentRef,
-    privateKey: await loadKey(opts.agentKeyPath),
-    ...(env.fetch === undefined ? {} : { fetch: env.fetch }),
-  });
+  const owner = await ownerClient(env, opts.ownerKeyPath);
 
-  const task = await client.getTask(opts.task);
+  // Read from the owner's own queue. Previously this fetched the task through
+  // a borrowed agent identity (ADR 0006); the queue is both the right source
+  // and the one the owner key can actually reach.
+  const queue = await owner.listPendingApprovals();
+  const task = queue.find((t) => t.id === opts.task);
+  if (task === undefined) {
+    throw new Error(
+      `${opts.task} is not awaiting approval in ${env.workspace}. ` +
+        'Run `agentbridge pending` to see what is.',
+    );
+  }
   const decision = opts.decision ?? 'approve';
 
   env.write(`task:     ${task.id}`);
@@ -124,29 +153,12 @@ export async function approve(
 
   // Hash the payload we just read, not anything the caller supplied.
   const hash = payloadHash(task.payload);
-  const issuedAt = new Date().toISOString();
-  const signed = canonicalize({
-    task: opts.task,
-    decision,
-    payload_hash: hash,
-    issued_at: issuedAt,
-  });
-  const sig = await ed.signAsync(
-    new TextEncoder().encode(signed),
-    await loadKey(opts.ownerKeyPath),
-  );
 
-  // Submitted through the signed client: the owner signature travels in the
-  // body, while the request itself is signed by the operator's agent key.
+  // Both the decision and the request carry the owner's signature now, so
+  // there is one key and one identity involved rather than two.
   let state: string;
   try {
-    const out = await client.decideApproval({
-      task: opts.task,
-      decision,
-      payloadHash: hash,
-      issuedAt,
-      sig: `ed25519:${Buffer.from(sig).toString('base64')}`,
-    });
+    const out = await owner.decide(task, decision);
     state = out.state;
   } catch (err) {
     const code = err instanceof Error && 'code' in err ? String(err.code) : String(err);

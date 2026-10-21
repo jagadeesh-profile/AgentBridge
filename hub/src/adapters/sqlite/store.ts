@@ -30,6 +30,23 @@ const num = (v: unknown): number => (typeof v === 'number' ? v : Number(v));
 const bool = (v: unknown): boolean => num(v) !== 0;
 const json = <T>(v: unknown): T => JSON.parse(str(v)) as T;
 
+/** Shared by getTask and listTasksByState so the two cannot drift apart. */
+const taskFrom = (r: Row): TaskRecord => ({
+  id: str(r.id),
+  workspace: str(r.workspace),
+  thread: str(r.thread),
+  creator: str(r.creator),
+  assignee: str(r.assignee),
+  title: str(r.title),
+  payload: json<unknown>(r.payload),
+  payloadHash: str(r.payload_hash),
+  state: str(r.state) as TaskState,
+  sideEffect: bool(r.side_effect),
+  dueAt: nullableStr(r.due_at),
+  createdAt: str(r.created_at),
+  updatedAt: str(r.updated_at),
+});
+
 export function openStore(path: string): SqliteStore {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL');
@@ -235,23 +252,25 @@ export function openStore(path: string): SqliteStore {
     },
     getTask(workspace, id) {
       const r = db.prepare('SELECT * FROM tasks WHERE workspace=? AND id=?').get(workspace, id);
-      if (!r) return null;
-      const row = r as Row;
-      return {
-        id: str(row.id),
-        workspace: str(row.workspace),
-        thread: str(row.thread),
-        creator: str(row.creator),
-        assignee: str(row.assignee),
-        title: str(row.title),
-        payload: json<unknown>(row.payload),
-        payloadHash: str(row.payload_hash),
-        state: str(row.state) as TaskState,
-        sideEffect: bool(row.side_effect),
-        dueAt: nullableStr(row.due_at),
-        createdAt: str(row.created_at),
-        updatedAt: str(row.updated_at),
-      };
+      return r ? taskFrom(r as Row) : null;
+    },
+    listTasksByState(workspace, state, limit) {
+      // Oldest first: the owner's queue is FIFO, so whatever has been blocking
+      // longest is at the top. `id` breaks ties for a total order.
+      const rows =
+        state === null
+          ? db
+              .prepare(
+                'SELECT * FROM tasks WHERE workspace=? ORDER BY created_at ASC, id ASC LIMIT ?',
+              )
+              .all(workspace, limit)
+          : db
+              .prepare(
+                `SELECT * FROM tasks WHERE workspace=? AND state=?
+                 ORDER BY created_at ASC, id ASC LIMIT ?`,
+              )
+              .all(workspace, state, limit);
+      return (rows as Row[]).map(taskFrom);
     },
     setTaskState(workspace, id, state, updatedAt) {
       db.prepare('UPDATE tasks SET state=?, updated_at=? WHERE workspace=? AND id=?').run(

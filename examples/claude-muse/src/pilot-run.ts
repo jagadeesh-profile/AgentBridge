@@ -6,9 +6,7 @@
  * must see nothing while a side effect waits for approval. Reuses the same mode
  * modules the test suite exercises, so this script and the tests cannot drift.
  */
-import { canonicalize, payloadHash } from '@agentbridge/contracts';
-import * as ed from '@noble/ed25519';
-import { Client, loadKey } from '@agentbridge/sdk';
+import { Client, OwnerClient, loadKey } from '@agentbridge/sdk';
 import { startPullMuse } from './modes/pull.js';
 
 function env(name: string, fallback?: string): string {
@@ -81,27 +79,12 @@ async function main(): Promise<void> {
   }
 
   say('5/5 owner approves; muse then completes it');
-  const issuedAt = new Date().toISOString();
-  const current = await claude.getTask(gated.id);
-  const hash = payloadHash(current.payload);
-  const sig = await ed.signAsync(
-    new TextEncoder().encode(
-      canonicalize({
-        task: gated.id,
-        decision: 'approve',
-        payload_hash: hash,
-        issued_at: issuedAt,
-      }),
-    ),
-    ownerPriv,
-  );
-  await claude.decideApproval({
-    task: gated.id,
-    decision: 'approve',
-    payloadHash: hash,
-    issuedAt,
-    sig: `ed25519:${Buffer.from(sig).toString('base64')}`,
-  });
+  // The owner key alone authenticates and signs (ADR 0006). The task is found
+  // on the owner's own queue, which is what the console reads too.
+  const owner = new OwnerClient({ baseUrl, workspace, privateKey: ownerPriv });
+  const waiting = (await owner.listPendingApprovals()).find((t) => t.id === gated.id);
+  if (waiting === undefined) throw new Error(`${gated.id} never reached the approval queue`);
+  await owner.decide(waiting, 'approve');
   await muse.drain();
   const released = await claude.getTask(gated.id);
   if (released.state !== 'completed') {

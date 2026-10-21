@@ -1,9 +1,11 @@
 import * as ed from '@noble/ed25519';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
+  ownerRequestDescriptor,
   payloadHash,
   registrationDescriptor,
   requestDescriptor,
+  sha256Hex,
   signDescriptor,
   signEnvelope,
   verifyDescriptor,
@@ -212,5 +214,96 @@ describe('registration descriptors', () => {
       scopes: ['read', 'message', 'create_task'],
     });
     expect(await verifyDescriptor(tampered, sig, pub)).toBe(false);
+  });
+});
+
+describe('sha256 is isomorphic', () => {
+  it('matches the known SHA-256 of the empty string', () => {
+    // Pins the implementation against a published vector, so swapping the
+    // backing library cannot silently change every hash in the system —
+    // including the payload hashes approvals are bound to.
+    expect(sha256Hex('')).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+  });
+
+  it('matches the known SHA-256 of "abc"', () => {
+    expect(sha256Hex('abc')).toBe(
+      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    );
+  });
+
+  it('agrees with node:crypto on non-ASCII input', async () => {
+    // The console hashes in a browser and the hub in Node. If the two disagreed
+    // on encoding, every non-ASCII payload would fail the approval gate — and
+    // only for those payloads, which is the worst way to find out.
+    const { createHash } = await import('node:crypto');
+    for (const input of ['', 'abc', '👋', 'héllo wörld', '{"to":"a@b.com","note":"café"}']) {
+      expect(sha256Hex(input), input).toBe(
+        createHash('sha256').update(input, 'utf8').digest('hex'),
+      );
+    }
+  });
+
+  it('does NOT reach for node:crypto, so the browser can hash too', async () => {
+    const src = await import('node:fs/promises').then((fs) =>
+      fs.readFile(new URL('./signing.ts', import.meta.url), 'utf8'),
+    );
+    expect(src).not.toMatch(/from 'node:crypto'/);
+  });
+});
+
+describe('ownerRequestDescriptor', () => {
+  const base = {
+    method: 'POST',
+    path: '/v1/approvals',
+    query: {},
+    body: '{"task":"tsk_1"}',
+    workspace: 'ws',
+    issuedAt: '2026-10-21T08:00:00.000Z',
+  };
+
+  it('binds the workspace, which no header-derived value can be trusted for', () => {
+    expect(ownerRequestDescriptor(base)).not.toBe(
+      ownerRequestDescriptor({ ...base, workspace: 'ws_other' }),
+    );
+  });
+
+  it('binds the method, so a signed GET cannot be replayed as a POST', () => {
+    expect(ownerRequestDescriptor(base)).not.toBe(
+      ownerRequestDescriptor({ ...base, method: 'GET' }),
+    );
+  });
+
+  it('binds the path and the body', () => {
+    expect(ownerRequestDescriptor(base)).not.toBe(
+      ownerRequestDescriptor({ ...base, path: '/v1/tasks' }),
+    );
+    expect(ownerRequestDescriptor(base)).not.toBe(ownerRequestDescriptor({ ...base, body: '{}' }));
+  });
+
+  it('is DISTINCT from an agent requestDescriptor over the same request', () => {
+    // Domain separation: an agent signature must never be replayable as an
+    // owner signature, nor the reverse. The version tag is what guarantees it.
+    expect(ownerRequestDescriptor(base)).not.toBe(
+      requestDescriptor({ ...base, timestamp: base.issuedAt }),
+    );
+  });
+
+  it('is DISTINCT from a registration descriptor', () => {
+    expect(ownerRequestDescriptor(base).split('\n')[0]).not.toBe(
+      registrationDescriptor({
+        workspace: 'ws',
+        name: 'n',
+        publicKey: 'k',
+        scopes: [],
+        issuedAt: base.issuedAt,
+      }).split('\n')[0],
+    );
+  });
+
+  it('round-trips through sign and verify', async () => {
+    const d = ownerRequestDescriptor(base);
+    const sig = await signDescriptor(d, priv);
+    expect(await verifyDescriptor(d, sig, pub)).toBe(true);
+    expect(await verifyDescriptor(d, sig, other)).toBe(false);
   });
 });

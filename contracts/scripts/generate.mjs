@@ -96,6 +96,12 @@ const paths = {
       status: 201,
       summary: 'Create a task. side_effect:true enters needs-approval (FR-4, FR-8).',
     }),
+    get: operation({
+      operationId: 'listTasks',
+      status: 200,
+      ok: 'TaskListResponse',
+      summary: 'Owner-signed listing, e.g. ?state=needs-approval for the approval queue.',
+    }),
   },
   '/v1/tasks/{id}': {
     get: operation({ operationId: 'getTask', status: 200, summary: 'Read one task.' }),

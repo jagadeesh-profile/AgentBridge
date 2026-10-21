@@ -167,6 +167,22 @@ class FakeStore implements Store {
     const found = this.tasks.get(key(workspace, id));
     if (found) this.tasks.set(key(workspace, id), { ...found, state, updatedAt });
   }
+  listTasksByState(
+    workspace: string,
+    state: TaskState | null,
+    limit: number,
+  ): readonly TaskRecord[] {
+    return (
+      [...this.tasks.values()]
+        .filter((t) => t.workspace === workspace && (state === null || t.state === state))
+        // Same total order as the SQLite adapter: oldest first, id breaking ties.
+        // A fake that ordered differently would let a test pass here and fail in
+        // the real store.
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+        .slice(0, limit)
+        .map((t) => ({ ...t }))
+    );
+  }
 
   putArtifact(a: ArtifactRecord): void {
     this.artifacts.set(key(a.workspace, a.id), { ...a });

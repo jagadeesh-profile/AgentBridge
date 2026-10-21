@@ -96,6 +96,45 @@ export const InboxResponse = z.object({
   cursor: z.string().min(1).nullable(),
 });
 
+/**
+ * Derived from TASK_STATES so the enum cannot drift from the state machine:
+ * adding a state there is a type error here until it is handled.
+ */
+const TaskStateEnum = z.enum(TASK_STATES);
+
+/**
+ * Owner-only listing (ADR 0006). The owner console needs to find what awaits a
+ * decision; before this, `approve` required a task id you had to already know.
+ */
+export const TaskListQuery = z.object({
+  state: TaskStateEnum.optional().describe('Filter by state, e.g. needs-approval.'),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export const TaskListResponse = z.object({
+  items: z.array(
+    z.object({
+      id: z.string().min(1),
+      thread: z.string().min(1),
+      creator: AgentRefSchema,
+      assignee: AgentRefSchema,
+      title: z.string().min(1),
+      /**
+       * The payload as stored. The console MUST recompute `payload_hash` from
+       * this rather than trust the field below — signing the hub's hash would
+       * approve whatever the hub claimed, which is what the gate prevents.
+       */
+      payload: z.unknown(),
+      payload_hash: Sha256Hex,
+      state: TaskStateEnum,
+      side_effect: z.boolean(),
+      created_at: z.string().datetime({ offset: true }),
+      updated_at: z.string().datetime({ offset: true }),
+    }),
+  ),
+  cursor: z.string().min(1).nullable(),
+});
+
 export const ErrorResponse = z.object({
   error: z.object({
     code: z.string().min(1),
@@ -112,3 +151,5 @@ export type PutArtifactRequestT = z.infer<typeof PutArtifactRequest>;
 export type ApprovalDecisionRequestT = z.infer<typeof ApprovalDecisionRequest>;
 export type InboxQueryT = z.infer<typeof InboxQuery>;
 export type InboxResponseT = z.infer<typeof InboxResponse>;
+export type TaskListQueryT = z.infer<typeof TaskListQuery>;
+export type TaskListResponseT = z.infer<typeof TaskListResponse>;

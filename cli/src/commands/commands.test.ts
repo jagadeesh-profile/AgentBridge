@@ -9,7 +9,16 @@ import { makeFakes, type Fakes } from '@agentbridge/hub/ports/fakes';
 import { payloadHash } from '@agentbridge/contracts';
 import * as ed from '@noble/ed25519';
 import { saveKey } from '@agentbridge/sdk';
-import { approve, auditVerify, inbox, keygen, register, revoke, type Env } from './index.js';
+import {
+  approve,
+  auditVerify,
+  inbox,
+  keygen,
+  pending,
+  register,
+  revoke,
+  type Env,
+} from './index.js';
 
 let dir: string;
 let deps: Fakes;
@@ -162,7 +171,6 @@ describe('approve', () => {
     const out = await approve(env, {
       task: id,
       ownerKeyPath,
-      ...agentOpts(),
       yes: true,
     });
     expect(out.payloadHash).toBe(payloadHash({ to: 'recruiter@example.com' }));
@@ -172,7 +180,7 @@ describe('approve', () => {
 
   it('refuses to sign without --yes', async () => {
     const id = gatedTask();
-    await expect(approve(env, { task: id, ownerKeyPath, ...agentOpts() })).rejects.toThrow(/--yes/);
+    await expect(approve(env, { task: id, ownerKeyPath })).rejects.toThrow(/--yes/);
     expect(deps.store.getTask('ws', id)?.state).toBe('needs-approval');
   });
 
@@ -181,7 +189,6 @@ describe('approve', () => {
     const out = await approve(env, {
       task: id,
       ownerKeyPath,
-      ...agentOpts(),
       decision: 'reject',
       yes: true,
     });
@@ -197,9 +204,9 @@ describe('approve', () => {
       ...(current as NonNullable<typeof current>),
       payloadHash: payloadHash({ to: 'someone-else@evil.com' }),
     });
-    await expect(
-      approve(env, { task: id, ownerKeyPath, ...agentOpts(), yes: true }),
-    ).rejects.toThrow(/approval_hash_mismatch/);
+    await expect(approve(env, { task: id, ownerKeyPath, yes: true })).rejects.toThrow(
+      /approval_hash_mismatch/,
+    );
     expect(deps.store.getTask('ws', id)?.state).toBe('needs-approval');
   });
 
@@ -207,9 +214,42 @@ describe('approve', () => {
     const id = gatedTask();
     const wrongKey = join(dir, 'wrong.key');
     await saveKey(wrongKey, ed.utils.randomPrivateKey());
+    // Under ADR 0006 this now fails at request auth, before the body signature
+    // is ever examined — a non-owner cannot even read the queue.
     await expect(
-      approve(env, { task: id, ownerKeyPath: wrongKey, ...agentOpts(), yes: true }),
-    ).rejects.toThrow(/signature_invalid/);
+      approve(env, { task: id, ownerKeyPath: wrongKey, yes: true }),
+    ).rejects.toMatchObject({ code: 'unauthenticated' });
+    expect(deps.store.getTask('ws', id)?.state).toBe('needs-approval');
+  });
+
+  it('needs ONLY the owner key — no agent key exists for the owner to borrow', async () => {
+    const id = gatedTask({ to: 'recruiter@example.com' });
+    const out = await approve(env, { task: id, ownerKeyPath, yes: true });
+    expect(out.state).toBe('submitted');
+    // The payload still reaches the operator's eyes before anything is signed.
+    expect(lines.join('\n')).toContain('recruiter@example.com');
+  });
+
+  it('says plainly when a task is not awaiting a decision', async () => {
+    const id = gatedTask();
+    deps.store.setTaskState('ws', id, 'completed', '2026-10-20T13:00:00.000Z');
+    await expect(approve(env, { task: id, ownerKeyPath, yes: true })).rejects.toThrow(
+      /not awaiting approval/i,
+    );
+  });
+});
+
+describe('pending', () => {
+  it('lists the approval queue with only the owner key', async () => {
+    gatedTask({ to: 'a@b.com' });
+    gatedTask({ to: 'c@d.com' });
+    const out = await pending(env, { ownerKeyPath });
+    expect(out).toHaveLength(2);
+    expect(lines.join('\n')).toContain('send email');
+  });
+
+  it('reports an empty queue without failing', async () => {
+    expect(await pending(env, { ownerKeyPath })).toHaveLength(0);
   });
 });
 
