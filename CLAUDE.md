@@ -60,7 +60,7 @@ Unit tests live next to the code they test and belong to that code's owner.
 - **MCP:** `@modelcontextprotocol/sdk` — the MCP server is a stdio bin and a thin REST client of the hub
 - **SDK:** `tsup` for `sdk/typescript`; **Console:** Next.js (next pass)
 - **Contracts:** Zod schemas are the source of truth; JSON Schema and `openapi.yaml` are generated into `contracts/generated/` and drift-checked
-- **Observability:** `trace_id` carried in the envelope across agents, adopted from the caller when well-formed. The OTel **exporter** is not wired yet (see `docs/TASKS.md`).
+- **Observability:** OpenTelemetry. `trace_id` is carried in the envelope and adopted from the caller, so one trace spans both agents; it becomes the real OTel trace id. Spans export over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set and are a no-op otherwise. No auto-instrumentation: every span is explicit and its attributes pass an allowlist, so a body can never reach a span.
 - **Phase 0 runtime:** one Node container — `node:sqlite` for state, a durable SQLite outbox plus an in-process scheduler keyed by `thread_id` for ordering, local filesystem for artifacts. All six ports (`Store`, `Queue`, `BlobStore`, `Clock`, `IdGen`, `Signer`) are interfaces; DynamoDB, SQS FIFO, S3 and KMS drop in at Phase 1 as one new file each.
 
 ```bash

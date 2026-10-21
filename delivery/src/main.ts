@@ -11,7 +11,16 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { ulid } from 'ulid';
-import { buildApp, openBlobStore, openStore, type Clock, type IdGen } from '@agentbridge/hub';
+import {
+  buildApp,
+  initTelemetry,
+  openBlobStore,
+  openStore,
+  shutdownTelemetry,
+  telemetryOptionsFromEnv,
+  type Clock,
+  type IdGen,
+} from '@agentbridge/hub';
 import { makeWorker } from './worker.js';
 
 function required(name: string): string {
@@ -39,6 +48,10 @@ async function main(): Promise<void> {
   if (ownerPublicKey.length !== 32) {
     throw new Error('AGENTBRIDGE_OWNER_PUBLIC_KEY must be a base64 Ed25519 public key (32 bytes)');
   }
+
+  // Tracing first, so startup spans are captured. With no OTLP endpoint
+  // configured this is a no-op and the hub needs no collector.
+  const telemetry = initTelemetry(telemetryOptionsFromEnv());
 
   const store = openStore(dbPath);
   const clock: Clock = { now: () => new Date() };
@@ -72,6 +85,7 @@ async function main(): Promise<void> {
     app.log.info({ signal }, 'shutting down');
     worker?.stop();
     await app.close();
+    await shutdownTelemetry();
     store.close();
     process.exit(0);
   };
@@ -84,7 +98,10 @@ async function main(): Promise<void> {
   }
 
   await app.listen({ port, host: '0.0.0.0' });
-  app.log.info({ port, dbPath, artifactDir, mode }, 'agentbridge hub listening');
+  app.log.info(
+    { port, dbPath, artifactDir, mode, tracing: telemetry.enabled },
+    'agentbridge hub listening',
+  );
 }
 
 main().catch((err: unknown) => {

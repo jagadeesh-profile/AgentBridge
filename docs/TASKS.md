@@ -19,7 +19,7 @@ see "Verification debt".
 
 | Command | Result |
 |---|---|
-| `make check` — lint, `tsc --strict`, unit, contract-drift | **359 tests** |
+| `make check` — lint, `tsc --strict`, unit, contract-drift | **374 tests** |
 | `make test-e2e` — real hub, SQLite on disk, delivery worker | **24 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests** |
 | `make conformance` — MCP tool surface | **8 tests** |
@@ -79,7 +79,7 @@ see "Verification debt".
 | `already_exists` (409) for duplicate registration | ✅ contract bumped to 0.2.0 |
 | ADRs 0001–0004 | ✅ this commit |
 | `docs/TASKS.md` | ✅ this file |
-| OpenTelemetry **exporter** | ⬜ deferred — `trace_id` propagation is done; spans are not exported |
+| OpenTelemetry exporter | ✅ OTLP/HTTP; verified against a live collector receiving spans in the caller's trace |
 | `withIdempotency` durable reservation | ⬜ Phase 1, once delivery splits into its own process |
 | Owner-key-signed registration | ⬜ Phase 1, replaces the shared token (ADR 0004) |
 
@@ -105,6 +105,8 @@ that writing tests first did independent work:
 | Container log level set to `warn` | Made the body-redaction test pass **vacuously** against an empty log |
 | `listInbox` cursor from last item, not last row | One orphaned row would have wedged an agent's inbox permanently |
 | Unauthenticated `POST /v1/agents` | Anyone reachable could enrol an agent into the owner's workspace (ADR 0004) |
+| OTel processors took a bare exporter | sdk-trace 3.0 wants `{ exporter }`; a positional exporter is accepted, never stored, and dies later on `undefined.forceFlush` |
+| Request span tied to a socket `close` event | Never fired under `inject`, so no span was ever emitted; `onResponse` is the correct hook |
 
 ## Verification debt
 

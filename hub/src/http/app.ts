@@ -11,6 +11,7 @@ import {
   UpdateTaskRequest,
   payloadHash,
 } from '@agentbridge/contracts';
+import type { Span as OtelSpan } from '@opentelemetry/api';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { decideApproval } from '../domain/approvals.js';
 import { listArtifacts, putArtifact } from '../domain/artifacts.js';
@@ -24,7 +25,7 @@ import { authenticate } from './auth.js';
 import { assertDepth, registerErrorHandler } from './errors.js';
 import { withIdempotency } from './idempotency.js';
 import { loggerOptions } from './logger.js';
-import { resolveTraceId } from '../telemetry.js';
+import { endSpan, resolveTraceId, startSpan } from '../telemetry.js';
 
 export interface AppDeps {
   store: Store;
@@ -36,8 +37,8 @@ export interface AppDeps {
   /**
    * Required bearer for POST /v1/agents.
    *
-   * Registration cannot be signature-authenticated � the agent has no
-   * registered key yet � and the workspace arrives as a caller-supplied
+   * Registration cannot be signature-authenticated — the agent has no
+   * registered key yet — and the workspace arrives as a caller-supplied
    * header. Without this gate anyone who can reach the hub could enrol an
    * agent in someone else's workspace and immediately send messages to it with
    * the default read+message scopes. Not optional: fail closed.
@@ -57,6 +58,7 @@ declare module 'fastify' {
     agent?: AgentRecord;
     rawBodyText?: string;
     traceId?: string;
+    span?: OtelSpan | null;
   }
 }
 
@@ -102,15 +104,45 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
     keyGenerator: (req: FastifyRequest) => req.headers['x-agentbridge-agent']?.toString() ?? req.ip,
     // No errorResponseBuilder: the plugin's 429 is normalized into the standard
     // { error: { code, message, trace_id } } shape by the single error handler,
-    // so there is still exactly one place that builds an error body (spec �6).
+    // so there is still exactly one place that builds an error body (spec §6).
   });
 
   // Adopt the caller's trace id when it is well-formed, so one trace spans both
-  // agents (spec �8). A malformed id is replaced, never stored.
+  // agents (spec §8). A malformed id is replaced, never stored.
   app.addHook('onRequest', async (req) => {
     const { traceId, rejected } = resolveTraceId(req.headers['x-agentbridge-trace-id']);
     req.traceId = traceId;
     if (rejected) req.log.warn({ trace_id: traceId }, 'discarded a malformed inbound trace id');
+  });
+
+  // One span per API request, parented on the caller's trace id so the hub's
+  // work lands in the SAME trace as the agent that called it (spec §8).
+  // Started here and ended in onResponse: a request span outlives a single
+  // hook, so it cannot be expressed as "run this function inside a span".
+  // Attributes pass the allowlist, so a body can never reach a span.
+  app.addHook('onRequest', (req, _reply, done) => {
+    if (req.url.startsWith(AUTHENTICATED_PREFIX)) {
+      const route = req.url.split('?')[0] ?? req.url;
+      req.span = startSpan(
+        `hub ${req.method} ${route}`,
+        { 'http.method': req.method, 'http.route': route, trace_id: req.traceId },
+        { ...(req.traceId === undefined ? {} : { traceId: req.traceId }) },
+      );
+    }
+    done();
+  });
+
+  // onResponse runs for success and for handled errors alike, so a span cannot
+  // be leaked by an early return.
+  app.addHook('onResponse', (req, reply, done) => {
+    // agent and workspace are known only after authentication, which runs in
+    // preHandler — after the span was started.
+    endSpan(req.span ?? null, {
+      statusCode: reply.statusCode,
+      ...(req.agent === undefined ? {} : { agent: req.agent.ref, workspace: req.agent.workspace }),
+    });
+    req.span = null;
+    done();
   });
 
   app.addHook('preHandler', async (req) => {

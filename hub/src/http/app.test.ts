@@ -465,3 +465,79 @@ describe('registration is gated', () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+// The exporter wiring, not just the helper: a request must produce a span whose
+// trace id is the one the caller sent, so the hub's work lands in the agent's
+// trace rather than a disconnected one (spec §8).
+describe('request spans reach the exporter', () => {
+  it('emits one span per API request, in the caller trace', async () => {
+    const { InMemorySpanExporter } = await import('@opentelemetry/sdk-trace');
+    const { initTelemetry, flushTelemetry, shutdownTelemetry } = await import('../telemetry.js');
+    const exporter = new InMemorySpanExporter();
+    initTelemetry({ serviceName: 'app-test', exporter });
+
+    const traced = await buildApp(
+      {
+        ...deps,
+        ownerPublicKey: new Uint8Array(32),
+        registrationToken: TEST_REGISTRATION_TOKEN,
+      },
+      { logger: false, rateLimitMax: 1000 },
+    );
+    await traced.ready();
+
+    const trace = '11112222333344445555666677778888';
+    try {
+      const req = await signed('GET', '/v1/inbox');
+      const res = await traced.inject({
+        ...req,
+        headers: { ...req.headers, 'x-agentbridge-trace-id': trace },
+      });
+      expect(res.statusCode).toBe(200);
+
+      await flushTelemetry();
+      const spans = exporter.getFinishedSpans();
+      expect(spans.length).toBeGreaterThan(0);
+
+      const mine = spans.filter((s) => s.spanContext().traceId === trace);
+      expect(mine.length, 'a span must carry the caller trace id').toBeGreaterThan(0);
+      expect(mine[0]?.name).toContain('/v1/inbox');
+      expect(mine[0]?.attributes).toMatchObject({ 'http.method': 'GET' });
+
+      // And no body-bearing attribute anywhere in the exported spans.
+      const dump = JSON.stringify(spans.map((s) => s.attributes));
+      for (const forbidden of ['"body"', '"payload"', '"value"', '"inline"']) {
+        expect(dump, `${forbidden} must not be exported`).not.toContain(forbidden);
+      }
+    } finally {
+      await traced.close();
+      await shutdownTelemetry();
+    }
+  });
+
+  it('does not emit a span for /healthz, which is not an API route', async () => {
+    const { InMemorySpanExporter } = await import('@opentelemetry/sdk-trace');
+    const { initTelemetry, flushTelemetry, shutdownTelemetry } = await import('../telemetry.js');
+    const exporter = new InMemorySpanExporter();
+    initTelemetry({ serviceName: 'app-test', exporter });
+
+    const traced = await buildApp(
+      {
+        ...deps,
+        ownerPublicKey: new Uint8Array(32),
+        registrationToken: TEST_REGISTRATION_TOKEN,
+      },
+      { logger: false, rateLimitMax: 1000 },
+    );
+    await traced.ready();
+    try {
+      await traced.inject({ method: 'GET', url: '/healthz' });
+      await flushTelemetry();
+      // A liveness probe every 10s must not flood the trace backend.
+      expect(exporter.getFinishedSpans()).toHaveLength(0);
+    } finally {
+      await traced.close();
+      await shutdownTelemetry();
+    }
+  });
+});

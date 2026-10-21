@@ -28,6 +28,11 @@ make test-container   # builds and drives the real image
 | `make conformance` — MCP tool surface | **8 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests** |
 
+Tracing exports over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and
+the caller's `trace_id` becomes the real OTel trace id so one trace spans both
+agents. Verified against a live collector: spans arrive carrying the caller's
+trace id, with no body-bearing attribute and no span for `/healthz`.
+
 ## Architecture
 
 Ports-and-adapters, one container. The domain depends only on six interfaces
