@@ -194,6 +194,25 @@ importers:
         specifier: 2.4.0
         version: 2.4.0
 
+  examples/claude-muse:
+    dependencies:
+      '@agentbridge/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+      '@agentbridge/sdk':
+        specifier: workspace:*
+        version: link:../../sdk/typescript
+    devDependencies:
+      '@agentbridge/delivery':
+        specifier: workspace:*
+        version: link:../../delivery
+      '@agentbridge/hub':
+        specifier: workspace:*
+        version: link:../../hub
+      '@noble/ed25519':
+        specifier: 2.3.0
+        version: 2.3.0
+
   hub:
     dependencies:
       '@agentbridge/contracts':

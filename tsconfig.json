@@ -18,6 +18,9 @@
     },
     {
       "path": "./cli"
+    },
+    {
+      "path": "./examples/claude-muse"
     }
   ]
 }
