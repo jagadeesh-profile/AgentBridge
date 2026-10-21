@@ -74,7 +74,26 @@ Until this pass, `DELETE /v1/tasks/{id}` accepted any authenticated agent — an
 it writes an audit row attributed to the owner, so an agent could forge that
 attribution in an append-only log. Owner-only now.
 
+## The audit viewer
+
+Every recorded event, newest first, with a verdict on the hash chain at the
+top — **computed in this page from the rows the hub returned**, using the same
+rule the hub appends with (`verifyAuditChain` in `contracts`).
+
+That distinction is the whole point. The hub also offers `/v1/audit/verify`,
+but that is the hub attesting to its own log; one that had rewritten a row
+would answer "intact". When the chain does break, the banner names the `seq`
+and the reason and every row from that point is flagged.
+
+Checked by dropping the database's append-only triggers and editing a row
+directly — the trigger blocks an `UPDATE` even on a raw connection, so the
+chain is the defence against the edit that goes around it entirely. The
+console reported `hash-mismatch at seq 1`.
+
+Dead-lettered deliveries appear here too, since "what failed" belongs with
+"what happened".
+
 ## Not yet here
 
-Audit viewer, and anything resembling multi-user access. Phase 0 is one owner with one key; ADR 0004 names WebAuthn as the
+Anything resembling multi-user access. Phase 0 is one owner with one key; ADR 0004 names WebAuthn as the
 eventual home for that key, which would remove the file picker.

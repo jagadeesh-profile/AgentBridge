@@ -255,22 +255,32 @@ export async function inbox(
   return page.items.length;
 }
 
+/**
+ * Verifies the chain LOCALLY, from the rows the hub returned.
+ *
+ * Not `/v1/audit/verify`, which is the hub attesting to its own log — a hub
+ * that had rewritten a row would answer "intact" just as readily. Recomputing
+ * here is the only version of this check worth running.
+ */
 export async function auditVerify(
   env: Env,
-  opts: { agentRef: string; agentKeyPath: string },
+  opts: { ownerKeyPath: string; list?: boolean | undefined },
 ): Promise<{ ok: boolean; checked: number }> {
-  const client = new Client({
-    baseUrl: env.baseUrl,
-    workspace: env.workspace,
-    agent: opts.agentRef,
-    privateKey: await loadKey(opts.agentKeyPath),
-    ...(env.fetch === undefined ? {} : { fetch: env.fetch }),
-  });
-  const out = await client.verifyAudit();
+  const { rows, verification } = await (await ownerClient(env, opts.ownerKeyPath)).auditLog(500);
+
+  if (opts.list === true) {
+    for (const r of rows) {
+      env.write(
+        `${String(r.seq).padStart(5)}  ${r.createdAt}  ${r.actor}  ${r.action}  ${r.subject}`,
+      );
+    }
+  }
+
   env.write(
-    out.ok
-      ? `audit chain verifies across ${out.checked} row(s)`
-      : `AUDIT CHAIN BROKEN at seq ${String(out.brokenAtSeq)} after ${out.checked} row(s)`,
+    verification.ok
+      ? `audit chain verifies across ${verification.checked} row(s), recomputed locally`
+      : `AUDIT CHAIN BROKEN at seq ${String(verification.brokenAtSeq)} ` +
+          `(${verification.reason}) after ${verification.checked} good row(s)`,
   );
-  return { ok: out.ok, checked: out.checked };
+  return { ok: verification.ok, checked: verification.checked };
 }

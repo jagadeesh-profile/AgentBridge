@@ -27,6 +27,9 @@ const EXPECTED: Record<string, 'open' | 'owner' | 'agent'> = {
 
   // The owner's surface (ADR 0006).
   'GET /v1/agents': 'owner',
+  'GET /v1/audit': 'owner',
+  'GET /v1/audit/verify': 'owner',
+  'GET /v1/dlq': 'owner',
   'DELETE /v1/agents/:ref/key': 'owner',
   'GET /v1/tasks': 'owner',
   'DELETE /v1/tasks/:id': 'owner',
@@ -40,12 +43,6 @@ const EXPECTED: Record<string, 'open' | 'owner' | 'agent'> = {
   'POST /v1/artifacts': 'agent',
   'GET /v1/inbox': 'agent',
   'POST /v1/inbox/ack': 'agent',
-
-  // Read-only views with owner semantics, still on agent auth. Recorded as a
-  // known gap rather than quietly tolerated: both leak workspace-wide state to
-  // any single agent. Moving them belongs with the audit viewer.
-  'GET /v1/audit/verify': 'agent',
-  'GET /v1/dlq': 'agent',
 };
 
 /** Every `app.<verb>(...)` registration, with the guard its handler calls. */

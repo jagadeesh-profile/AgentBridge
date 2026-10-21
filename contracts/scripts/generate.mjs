@@ -149,11 +149,19 @@ const paths = {
       summary: 'Advance the inbox cursor.',
     }),
   },
+  '/v1/audit': {
+    get: operation({
+      operationId: 'listAudit',
+      status: 200,
+      ok: 'AuditListResponse',
+      summary: 'Owner-signed: the hash-chained audit rows, for independent verification.',
+    }),
+  },
   '/v1/audit/verify': {
     get: operation({
       operationId: 'verifyAudit',
       status: 200,
-      summary: 'Walk the append-only hash chain and report whether it verifies.',
+      summary: 'Owner-signed. The hub checking itself — prefer recomputing from GET /v1/audit.',
     }),
   },
 };

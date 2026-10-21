@@ -2,10 +2,18 @@
 
 import { useCallback, useState } from 'react';
 import { canonicalize, payloadHash } from '@agentbridge/contracts';
-import { OwnerClient, type AgentSummary, type PendingTask } from '@agentbridge/sdk/owner';
+import {
+  OwnerClient,
+  type AgentSummary,
+  type AuditEntry,
+  type DeadLetter,
+  type PendingTask,
+} from '@agentbridge/sdk/owner';
+import type { AuditVerification } from '@agentbridge/contracts';
 import { OwnerKeyError, parseOwnerKey, wipeKey } from '@/lib/owner-key';
 import { Agents } from '@/components/agents';
 import { Board } from '@/components/board';
+import { Audit } from '@/components/audit';
 
 /**
  * The approvals queue.
@@ -27,7 +35,12 @@ export default function ApprovalsPage() {
   const [tasks, setTasks] = useState<PendingTask[] | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [board, setBoard] = useState<PendingTask[]>([]);
-  const [view, setView] = useState<'approvals' | 'board' | 'agents'>('approvals');
+  const [audit, setAudit] = useState<{
+    rows: AuditEntry[];
+    verification: AuditVerification | null;
+    dead: DeadLetter[];
+  }>({ rows: [], verification: null, dead: [] });
+  const [view, setView] = useState<'approvals' | 'board' | 'agents' | 'audit'>('approvals');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -35,14 +48,17 @@ export default function ApprovalsPage() {
     try {
       // Both in one go: revoking changes who can act, and a stale approval
       // list beside a fresh roster is the confusing combination.
-      const [pending, all, roster] = await Promise.all([
+      const [pending, all, roster, log, dead] = await Promise.all([
         c.listPendingApprovals(),
         c.listTasks(),
         c.listAgents(),
+        c.auditLog(),
+        c.listDeadLetters(),
       ]);
       setTasks(pending);
       setBoard(all);
       setAgents(roster);
+      setAudit({ rows: log.rows, verification: log.verification, dead });
       setError(null);
     } catch (err) {
       setTasks(null);
@@ -71,14 +87,17 @@ export default function ApprovalsPage() {
     // leave the owner on a signed-in screen, holding a key, wondering why
     // every button fails.
     try {
-      const [pending, all, roster] = await Promise.all([
+      const [pending, all, roster, log, dead] = await Promise.all([
         client.listPendingApprovals(),
         client.listTasks(),
         client.listAgents(),
+        client.auditLog(),
+        client.listDeadLetters(),
       ]);
       setTasks(pending);
       setBoard(all);
       setAgents(roster);
+      setAudit({ rows: log.rows, verification: log.verification, dead });
     } catch (err) {
       wipeKey(key);
       setError(describe(err));
@@ -94,6 +113,7 @@ export default function ApprovalsPage() {
     setTasks(null);
     setBoard([]);
     setAgents([]);
+    setAudit({ rows: [], verification: null, dead: [] });
     setView('approvals');
     setError(null);
   }
@@ -158,7 +178,13 @@ export default function ApprovalsPage() {
     <main>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h1>
-          {view === 'approvals' ? 'Awaiting your decision' : view === 'board' ? 'Tasks' : 'Agents'}
+          {view === 'approvals'
+            ? 'Awaiting your decision'
+            : view === 'board'
+              ? 'Tasks'
+              : view === 'agents'
+                ? 'Agents'
+                : 'Audit'}
         </h1>
         <div className="row">
           <button onClick={() => void refresh(session.client)}>Refresh</button>
@@ -182,6 +208,9 @@ export default function ApprovalsPage() {
         <button className={view === 'agents' ? 'tab on' : 'tab'} onClick={() => setView('agents')}>
           Agents ({agents.length})
         </button>
+        <button className={view === 'audit' ? 'tab on' : 'tab'} onClick={() => setView('audit')}>
+          Audit{audit.verification !== null && !audit.verification.ok ? ' ⚠' : ''}
+        </button>
       </div>
 
       {error !== null && <p className="error">{error}</p>}
@@ -192,6 +221,10 @@ export default function ApprovalsPage() {
           tasks={board}
           onChanged={() => void refresh(session.client)}
         />
+      )}
+
+      {view === 'audit' && (
+        <Audit rows={audit.rows} verification={audit.verification} deadLetters={audit.dead} />
       )}
 
       {view === 'agents' && (
@@ -256,6 +289,12 @@ export default function ApprovalsPage() {
             Read the payload, not the title — the title is written by the agent that asked. Your
             signature covers the payload shown above and nothing else; if it changes before you
             decide, the hub refuses the approval rather than applying it to the new one.
+          </>
+        ) : view === 'audit' ? (
+          <>
+            The verdict above was computed in this page from the rows the hub returned, using the
+            same chain rule the hub appends with. Asking the hub whether its own log is intact would
+            prove nothing.
           </>
         ) : view === 'board' ? (
           <>

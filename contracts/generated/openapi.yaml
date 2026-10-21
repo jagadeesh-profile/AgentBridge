@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AgentBridge
-  version: 0.6.0
+  version: 0.7.0
   description: Generated from contracts/src/*.ts. Do not edit by hand; run `make contracts`.
 paths:
   /v1/agents:
@@ -249,10 +249,29 @@ paths:
         "404": *a4
         "409": *a5
         "429": *a6
+  /v1/audit:
+    get:
+      operationId: listAudit
+      summary: "Owner-signed: the hash-chained audit rows, for independent
+        verification."
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditListResponse"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "429": *a6
   /v1/audit/verify:
     get:
       operationId: verifyAudit
-      summary: Walk the append-only hash chain and report whether it verifies.
+      summary: Owner-signed. The hub checking itself — prefer recomputing from GET
+        /v1/audit.
       responses:
         "200":
           description: Success
@@ -343,6 +362,65 @@ components:
         - payload_hash
         - issued_at
         - sig
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
+    AuditListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              seq:
+                type: integer
+                minimum: 1
+              action:
+                type: string
+                minLength: 1
+              actor:
+                type: string
+                minLength: 1
+              subject:
+                type: string
+              prev_hash:
+                type: string
+              hash:
+                type: string
+                pattern: ^[0-9a-f]{64}$
+              created_at:
+                type: string
+                format: date-time
+            required:
+              - seq
+              - action
+              - actor
+              - subject
+              - prev_hash
+              - hash
+              - created_at
+            additionalProperties: false
+        cursor:
+          anyOf:
+            - type: integer
+            - type: "null"
+      required:
+        - items
+        - cursor
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
+    AuditQuery:
+      type: object
+      properties:
+        since:
+          type: integer
+          minimum: 0
+          default: 0
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 200
       additionalProperties: false
       $schema: http://json-schema.org/draft-07/schema#
     CapabilityCard:

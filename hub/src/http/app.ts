@@ -7,6 +7,7 @@ import {
   InboxQuery,
   PostMessageRequest,
   PutArtifactRequest,
+  AuditQuery,
   RegisterAgentRequest,
   TaskListQuery,
   UpdateTaskRequest,
@@ -19,7 +20,7 @@ import type { Span as OtelSpan } from '@opentelemetry/api';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { decideApproval } from '../domain/approvals.js';
 import { listArtifacts, putArtifact } from '../domain/artifacts.js';
-import { verifyAuditChain } from '../domain/audit.js';
+import { verifyWholeChain } from '../domain/audit.js';
 import { registerAgent, revokeKey } from '../domain/registry.js';
 import { cancelTaskAsOwner, createTask, updateTask } from '../domain/tasks.js';
 import { postMessage } from '../domain/threads.js';
@@ -79,6 +80,12 @@ const OWNER_ROUTES: readonly (readonly [string, string])[] = [
   // owner, so an agent reaching it forged that attribution in an append-only,
   // hash-chained log — a lie that outlives the request.
   ['DELETE', '/v1/tasks/:id'],
+  // The audit log and the dead-letter queue are workspace-wide views. On agent
+  // auth any single agent could read every other agent's failures and the full
+  // history of the workspace; neither is an agent's business.
+  ['GET', '/v1/audit'],
+  ['GET', '/v1/audit/verify'],
+  ['GET', '/v1/dlq'],
 ];
 
 /**
@@ -448,14 +455,38 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
     return ackInbox(deps, agent, upTo);
   });
 
+  /**
+   * The raw chain, so the owner can verify it themselves.
+   *
+   * `/v1/audit/verify` below asks the hub whether its own log is intact, which
+   * is worth little on its own — a hub that rewrote a row would also answer
+   * yes. This endpoint hands over the rows and their hashes so the client can
+   * recompute the chain with `verifyAuditChain` from `contracts`.
+   */
+  app.get('/v1/audit', async (req) => {
+    const ws = requireOwner(req);
+    const q = AuditQuery.parse(req.query ?? {});
+    const items = deps.store.listAudit(ws, q.since, q.limit);
+    return {
+      items: items.map((r) => ({
+        seq: r.seq,
+        action: r.action,
+        actor: r.actor,
+        subject: r.subject,
+        prev_hash: r.prevHash,
+        hash: r.hash,
+        created_at: r.createdAt,
+      })),
+      cursor: items.at(-1)?.seq ?? null,
+    };
+  });
+
   app.get('/v1/audit/verify', async (req) => {
-    const agent = requireAgent(req);
-    return verifyAuditChain(deps, agent.workspace);
+    return verifyWholeChain(deps, requireOwner(req));
   });
 
   app.get('/v1/dlq', async (req) => {
-    const agent = requireAgent(req);
-    return { items: deps.store.listDead(agent.workspace) };
+    return { items: deps.store.listDead(requireOwner(req)) };
   });
 
   return app;

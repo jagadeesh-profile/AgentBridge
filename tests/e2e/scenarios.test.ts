@@ -406,7 +406,7 @@ describe('7. audit', () => {
     });
     await h.ownerApprove(gated.id);
 
-    const out = await h.claude.verifyAudit();
+    const out = (await h.owner.auditLog()).verification;
     expect(out.ok).toBe(true);
     expect(out.checked).toBeGreaterThan(5);
   });
@@ -438,7 +438,7 @@ describe('7. audit', () => {
     // Drop the triggers to simulate an attacker with direct DB access.
     h.store.exec('DROP TRIGGER audit_no_update');
     h.store.exec("UPDATE audit SET action='tampered' WHERE seq=1");
-    const out = await h.claude.verifyAudit();
+    const out = (await h.owner.auditLog()).verification;
     expect(out.ok).toBe(false);
     expect(out.brokenAtSeq).toBe(1);
   });

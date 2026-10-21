@@ -164,6 +164,34 @@ export const AgentListResponse = z.object({
   ),
 });
 
+/**
+ * The audit chain, paged. `since` is a `seq`, exclusive.
+ *
+ * Rows carry `prev_hash` and `hash` so the caller can recompute the chain
+ * rather than trust `/v1/audit/verify`, which is the hub vouching for itself.
+ * No payloads appear here: audit rows record *what happened* (action, actor,
+ * subject), never message or task bodies.
+ */
+export const AuditQuery = z.object({
+  since: z.coerce.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+});
+
+export const AuditListResponse = z.object({
+  items: z.array(
+    z.object({
+      seq: z.number().int().min(1),
+      action: z.string().min(1),
+      actor: z.string().min(1),
+      subject: z.string(),
+      prev_hash: z.string(),
+      hash: Sha256Hex,
+      created_at: z.string().datetime({ offset: true }),
+    }),
+  ),
+  cursor: z.number().int().nullable(),
+});
+
 export const ErrorResponse = z.object({
   error: z.object({
     code: z.string().min(1),
@@ -183,3 +211,5 @@ export type InboxResponseT = z.infer<typeof InboxResponse>;
 export type TaskListQueryT = z.infer<typeof TaskListQuery>;
 export type TaskListResponseT = z.infer<typeof TaskListResponse>;
 export type AgentListResponseT = z.infer<typeof AgentListResponse>;
+export type AuditQueryT = z.infer<typeof AuditQuery>;
+export type AuditListResponseT = z.infer<typeof AuditListResponse>;

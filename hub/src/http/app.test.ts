@@ -7,6 +7,7 @@ import {
   registrationDescriptor,
   requestDescriptor,
   signDescriptor,
+  verifyAuditChain,
 } from '@agentbridge/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
@@ -807,6 +808,78 @@ describe('owner-authenticated routes (ADR 0006)', () => {
         const res = await app.inject({ ...forA, url: '/v1/tasks/tsk_b' });
         expect(res.statusCode).toBe(401);
         expect(deps.store.getTask('ws', 'tsk_b')?.state).toBe('needs-approval');
+      });
+    });
+
+    describe('the audit log', () => {
+      it('hands over rows a client can verify WITHOUT trusting the hub', async () => {
+        gated('tsk_a');
+        await app.inject(await ownerSigned('DELETE', '/v1/tasks/tsk_a'));
+        const res = await app.inject(await ownerSigned('GET', '/v1/audit'));
+        expect(res.statusCode).toBe(200);
+        const items = res.json().items as {
+          seq: number;
+          action: string;
+          actor: string;
+          subject: string;
+          prev_hash: string;
+          hash: string;
+          created_at: string;
+        }[];
+        expect(items.length).toBeGreaterThan(0);
+        // Recomputed here with the shared rule, exactly as the console does.
+        const verdict = verifyAuditChain(
+          items.map((r) => ({
+            ...r,
+            workspace: 'ws',
+            prevHash: r.prev_hash,
+            createdAt: r.created_at,
+          })),
+        );
+        expect(verdict.ok).toBe(true);
+      });
+
+      it('records the owner cancel, so the chain shows who did what', async () => {
+        gated('tsk_a');
+        await app.inject(await ownerSigned('DELETE', '/v1/tasks/tsk_a'));
+        const items = (await app.inject(await ownerSigned('GET', '/v1/audit'))).json().items as {
+          action: string;
+          actor: string;
+        }[];
+        expect(items).toContainEqual(
+          expect.objectContaining({ action: 'task.cancel', actor: 'owner' }),
+        );
+      });
+
+      it('NEVER includes a payload or a body — audit records events, not content', async () => {
+        gated('tsk_a', { to: 'secret@example.com', note: 'confidential' });
+        await app.inject(await ownerSigned('DELETE', '/v1/tasks/tsk_a'));
+        const res = await app.inject(await ownerSigned('GET', '/v1/audit'));
+        expect(res.body).not.toContain('secret@example.com');
+        expect(res.body).not.toContain('confidential');
+      });
+
+      it('REFUSES an agent signature on the log, the verdict and the DLQ', async () => {
+        for (const path of ['/v1/audit', '/v1/audit/verify', '/v1/dlq']) {
+          const res = await app.inject(await signed('GET', path));
+          expect(res.statusCode, path).toBe(401);
+        }
+      });
+
+      it('serves each of them to the owner', async () => {
+        for (const path of ['/v1/audit', '/v1/audit/verify', '/v1/dlq']) {
+          const res = await app.inject(await ownerSigned('GET', path));
+          expect(res.statusCode, path).toBe(200);
+        }
+      });
+
+      it('never leaks another workspace', async () => {
+        gated('tsk_a');
+        await app.inject(await ownerSigned('DELETE', '/v1/tasks/tsk_a'));
+        const res = await app.inject(
+          await ownerSigned('GET', '/v1/audit', undefined, { workspace: 'ws_other' }),
+        );
+        expect(res.json().items).toEqual([]);
       });
     });
 

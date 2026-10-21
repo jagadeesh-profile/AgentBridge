@@ -7,13 +7,17 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '@agentbridge/hub/http';
 import { makeFakes, type Fakes } from '@agentbridge/hub/ports/fakes';
 import { Agent } from './agent.js';
+import * as ed from '@noble/ed25519';
 import { Client } from './client.js';
+import { OwnerClient } from './owner.js';
 import { generateKeyPair, publicKeyBase64 } from './keys.js';
 
 let deps: Fakes;
 let app: FastifyInstance;
 let baseUrl: string;
 let claude: Client;
+let owner: OwnerClient;
+let ownerPriv: Uint8Array;
 let museAgent: Agent;
 let dir: string;
 
@@ -47,7 +51,7 @@ beforeEach(async () => {
     {
       ...deps,
       clock: { now: () => new Date() },
-      ownerPublicKey: new Uint8Array(32),
+      ownerPublicKey: await ed.getPublicKeyAsync((ownerPriv = ed.utils.randomPrivateKey())),
     },
     { logger: false, rateLimitMax: 5000 },
   );
@@ -56,6 +60,7 @@ beforeEach(async () => {
 
   const common = { baseUrl, workspace: 'ws' };
   claude = new Client({ ...common, agent: 'agent:claude', privateKey: clPriv });
+  owner = new OwnerClient({ ...common, privateKey: ownerPriv });
   museAgent = new Agent({
     ...common,
     agent: 'agent:muse',
@@ -189,7 +194,7 @@ describe('Client', () => {
       title: 't',
       payload: {},
     });
-    expect((await claude.verifyAudit()).ok).toBe(true);
+    expect((await owner.auditLog()).verification.ok).toBe(true);
   });
 });
 

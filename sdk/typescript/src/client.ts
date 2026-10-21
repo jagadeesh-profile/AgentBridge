@@ -181,10 +181,6 @@ export class Client {
     return this.request('POST', '/v1/inbox/ack', { up_to: upTo });
   }
 
-  async verifyAudit(): Promise<{ ok: boolean; checked: number; brokenAtSeq: number | null }> {
-    return this.request('GET', '/v1/audit/verify');
-  }
-
   /**
    * Submits an owner-signed approval decision.
    *
@@ -212,11 +208,6 @@ export class Client {
   /** The kill switch: revokes an agent's key and drops its pending deliveries. */
   async revokeAgentKey(ref: string): Promise<{ revoked: string }> {
     return this.request('DELETE', `/v1/agents/${encodeURIComponent(ref)}/key`);
-  }
-
-  /** Dead-lettered deliveries, for the owner's DLQ view. */
-  async listDeadLetters(): Promise<{ items: { id: string; recipient: string }[] }> {
-    return this.request('GET', '/v1/dlq');
   }
 
   private async request<T>(method: string, pathWithQuery: string, bodyObj?: unknown): Promise<T> {

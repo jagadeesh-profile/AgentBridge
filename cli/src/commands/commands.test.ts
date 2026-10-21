@@ -340,9 +340,33 @@ describe('read-only commands', () => {
     expect(await inbox(env, agentOpts())).toBe(0);
   });
 
-  it('verifies the audit chain', async () => {
-    const out = await auditVerify(env, agentOpts());
+  it('verifies the audit chain locally, not by asking the hub', async () => {
+    const out = await auditVerify(env, { ownerKeyPath });
     expect(out.ok).toBe(true);
-    expect(lines.join('\n')).toContain('verifies');
+    expect(lines.join('\n')).toMatch(/verifies.*recomputed locally/);
+  });
+
+  it('REPORTS A BREAK when a stored row is tampered with', async () => {
+    // The check must be able to fail. A verifier that always says "ok" is
+    // worse than none, because it gets believed.
+    await revoke(env, { ref: 'agent:muse', ownerKeyPath, yes: true });
+    const victim = deps.store.listAudit('ws', 0, 50)[0];
+    expect(victim).toBeDefined();
+    deps.store.replaceAuditRowForTest({
+      ...(victim as NonNullable<typeof victim>),
+      subject: 'rewritten-history',
+    });
+
+    lines.length = 0;
+    const out = await auditVerify(env, { ownerKeyPath });
+    expect(out.ok).toBe(false);
+    expect(lines.join('\n')).toContain('AUDIT CHAIN BROKEN');
+  });
+
+  it('lists the rows when --list is given', async () => {
+    await revoke(env, { ref: 'agent:muse', ownerKeyPath, yes: true });
+    lines.length = 0;
+    await auditVerify(env, { ownerKeyPath, list: true });
+    expect(lines.join('\n')).toContain('agent.revoke');
   });
 });

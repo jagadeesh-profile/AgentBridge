@@ -24,7 +24,7 @@ const USAGE = `agentbridge — AgentBridge owner CLI
   agentbridge agents   --owner-key <path>
   agentbridge revoke   --ref <agent:slug> --owner-key <path> --yes
   agentbridge inbox    --agent <ref> --agent-key <path> [--limit n]
-  agentbridge audit verify --agent <ref> --agent-key <path>
+  agentbridge audit verify --owner-key <path> [--list]
 
 Environment:
   AGENTBRIDGE_URL        hub base url (default http://localhost:8080)
@@ -82,6 +82,7 @@ async function main(argv: string[]): Promise<void> {
       state: { type: 'string' },
       reject: { type: 'boolean' },
       limit: { type: 'string' },
+      list: { type: 'boolean' },
       yes: { type: 'boolean' },
     },
   });
@@ -152,7 +153,10 @@ async function main(argv: string[]): Promise<void> {
 
     case 'audit':
       if (sub !== 'verify') throw new Error('usage: agentbridge audit verify');
-      await auditVerify(e, { agentRef: agentRef(), agentKeyPath: agentKey() });
+      await auditVerify(e, {
+        ownerKeyPath: need(values['owner-key'], '--owner-key'),
+        ...(values.list === true ? { list: true } : {}),
+      });
       return;
 
     default:

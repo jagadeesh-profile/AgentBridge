@@ -22,7 +22,7 @@ Every agent, the lead included, enforces these. A change that weakens one needs 
 6. **The hub stores no secrets.** No model API keys, no tool credentials. Outbound content is scanned and redacted for tokens and card numbers.
 7. **No LLM calls inside the hub in v1.** The hub routes, stores and governs. It does not think.
 8. **Least privilege by default.** New agents get `read` + `message` only. Other scopes are granted explicitly, and the owner's signature over the enrolment binds them (ADR 0005), so an agent cannot widen its own scopes.
-9. **Audit is append-only and hash-chained.** Never update or delete audit rows.
+9. **Audit is append-only and hash-chained.** Never update or delete audit rows. SQLite triggers refuse both; the chain rule lives in `contracts` (`verifyAuditChain`) so the console recomputes the verdict itself rather than trusting the hub's — asking a hub whether its own log is intact proves nothing.
 
 ---
 
@@ -41,7 +41,7 @@ Each path has exactly one owning subagent. Only the owner edits it; anyone may r
 | `adapters/webhook/` | HMAC-signed outbound webhooks, REST inbound | `protocol-adapters` |
 | `sdk/typescript/` | Client SDK, `onTask` handlers, types inferred from `contracts/` | `sdk` |
 | `sdk/python/` | Python SDK at parity — **P1 (FR-18), not built in Phase 0** | `sdk` |
-| `console/` | Owner console. Next.js; approvals, task board and the kill switch shipped, audit viewer next. The owner key is loaded per session and held in the browser only (ADR 0006) | `console` |
+| `console/` | Owner console. Next.js; approvals, task board, kill switch and audit viewer shipped. The owner key is loaded per session and held in the browser only (ADR 0006) | `console` |
 | `Dockerfile`, `docker-compose.yml`, `.github/` | Phase 0: hub container, local stack, CI | `infra` |
 | `infra/` | AWS CDK (ECS Fargate, SQS FIFO, DynamoDB, S3, EventBridge, Lambda, KMS) — **Phase 1** | `infra` |
 | `tests/e2e/`, `tests/conformance/`, `tests/load/` | End-to-end, protocol conformance and load tests | `test-engineer` |

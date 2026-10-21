@@ -250,3 +250,61 @@ button.tab.on {
   border-radius: 999px;
   padding: 0.08rem 0.45rem;
 }
+
+.verdict {
+  border-left-width: 3px;
+}
+
+.ok-verdict {
+  border-left-color: var(--ok);
+}
+
+.bad-verdict {
+  border-left-color: var(--danger);
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.audit-table {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.audit-table table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.84rem;
+}
+
+.audit-table th {
+  text-align: left;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.audit-table td {
+  padding: 0.5rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.audit-table tr:last-child td {
+  border-bottom: none;
+}
+
+.audit-table .subject {
+  font-family: ui-monospace, monospace;
+  color: var(--muted);
+  white-space: normal;
+  word-break: break-all;
+}
+
+.audit-table tr.suspect td {
+  background: var(--danger-bg);
+  color: var(--danger);
+}

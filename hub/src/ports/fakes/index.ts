@@ -62,7 +62,7 @@ const key = (workspace: string, id: string): string => `${workspace}/${id}`;
  * snapshots on throw, so rollback semantics match SQLite — which is what makes
  * the domain's atomicity tests meaningful against the fake (spec §4.1).
  */
-class FakeStore implements Store {
+export class FakeStore implements Store {
   private agents = new Map<string, AgentRecord>();
   private threads = new Map<string, ThreadRecord>();
   private messages = new Map<string, MessageRecord>();
@@ -221,6 +221,18 @@ class FakeStore implements Store {
     return true;
   }
 
+  /**
+   * Overwrites a stored audit row in place, simulating tampering at the
+   * storage layer — someone editing the database file, not calling the API.
+   * SQLite triggers block UPDATE and DELETE through the hub, which is exactly
+   * why the hash chain exists: it is the defence against the edit that does
+   * not go through the hub at all. Tests only.
+   */
+  replaceAuditRowForTest(row: AuditRow): void {
+    const i = this.audit.findIndex((r) => r.workspace === row.workspace && r.seq === row.seq);
+    if (i >= 0) this.audit[i] = { ...row };
+  }
+
   appendAudit(row: Omit<AuditRow, 'seq'>): void {
     this.audit.push({ ...row, seq: this.audit.length + 1 });
   }
@@ -354,7 +366,9 @@ class FakeStore implements Store {
 }
 
 export interface Fakes {
-  store: Store;
+  // FakeStore, not Store: tests reach for fake-only affordances here just as
+  // they do for FakeClock.advance.
+  store: FakeStore;
   clock: FakeClock;
   ids: IdGen;
   blob: BlobStore;

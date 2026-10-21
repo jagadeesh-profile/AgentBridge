@@ -6,7 +6,8 @@
 - **Extends:** [0005](0005-owner-signed-registration.md) (owner-signed registration)
 - **Relates to:** [0002](0002-signature-only-auth-phase-0.md); `CLAUDE.md` §1.3, §1.6, §7
 - **Contract:** breaking; `CONTRACT_VERSION` 0.3.0 → 0.4.0 (approvals, task
-  listing), then → 0.5.0 (the roster and the kill switch)
+  listing), → 0.5.0 (the roster and the kill switch), → 0.7.0 (the audit log
+  and the DLQ)
 
 ## Context
 
@@ -97,9 +98,31 @@ signing invalidates it — tested.
 Three routes shipped with owner semantics behind `requireAgent`, each found by
 hand, one at a time. `hub/src/http/route-guards.test.ts` now pins every route
 to a declared bucket and fails on an unclassified, added or moved route, so the
-next one has to be a deliberate decision. It also records the two that remain
-on agent auth — `GET /v1/audit/verify` and `GET /v1/dlq` — as a known gap
-rather than letting silence imply they were considered.
+next one has to be a deliberate decision. `GET /v1/audit/verify` and `GET /v1/dlq` were the last two: workspace-wide
+views on agent auth, so any single agent could read the full history of the
+workspace and every other agent's delivery failures. Both are owner-only now,
+and `GET /v1/audit` joins them.
+
+### 4. The audit verdict is computed by the reader, not the hub
+
+`GET /v1/audit/verify` asks the hub whether its own log is intact. A hub that
+had rewritten a row would answer "intact" just as readily, so on its own the
+endpoint proves very little — it is useful as a cheap server-side check, not as
+assurance.
+
+`GET /v1/audit` therefore returns the rows with their `prev_hash` and `hash`,
+and the chain rule moved into `contracts` as `verifyAuditChain` so the hub
+(appending) and the console (checking) cannot drift — two implementations would
+eventually disagree, and the disagreement would read as tampering. The console
+and `agentbridge audit verify` both recompute locally. It is the same reasoning
+as recomputing an approval's payload hash: a signature over the hub's own claim
+attests to nothing.
+
+The shared verifier also catches deletion via a `seq` gap, which hash-linking
+alone misses — serving the page around a removed row would otherwise still
+link up. Verified by dropping the SQLite triggers and editing a row directly:
+the console reported `hash-mismatch at seq 1` and flagged every row from the
+break onward.
 
 ### 3. The owner key stays in the browser
 
@@ -148,6 +171,10 @@ hub asserted — the gate would be verifying a signature over the hub's own clai
   it.
 - Two descriptor formats now exist. A third would be a smell — the next
   owner-facing route should reuse this one, not invent another.
+- The audit viewer shows `subject` strings verbatim. They are hub-generated
+  (`tsk_1:canceled`, `agent:muse`), never message or task content, and a test
+  asserts no payload reaches the response — but anything ever added to a
+  subject becomes owner-visible by default.
 - Revoking is irreversible in Phase 0: there is no un-revoke, only re-enrolment
   with a fresh key. The console asks the owner to type the agent's name rather
   than accepting one click, which is the same bar as the CLI's `--yes` placed

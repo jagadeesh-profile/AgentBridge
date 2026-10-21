@@ -8,7 +8,7 @@ import {
   registrationDescriptor,
   signDescriptor,
 } from '@agentbridge/contracts';
-import { Client, publicKeyBase64 } from '@agentbridge/sdk';
+import { Client, OwnerClient, publicKeyBase64 } from '@agentbridge/sdk';
 
 const run = promisify(execFile);
 
@@ -27,6 +27,8 @@ export interface ContainerHarness {
     taskId: string,
     decision?: 'approve' | 'reject',
   ) => Promise<{ status: number; code: string | null }>;
+  /** The owner's client: queue, board, roster, kill switch, audit. */
+  owner: OwnerClient;
   /** Signs an owner decision over a hash the caller picks — for negatives. */
   ownerApproveWithHash: (
     client: Client,
@@ -186,6 +188,7 @@ export async function startContainer(): Promise<ContainerHarness> {
     baseUrl,
     register,
     client,
+    owner: new OwnerClient({ baseUrl, workspace: WORKSPACE, privateKey: ownerPriv }),
 
     ownerApprove: async (c, taskId, decision = 'approve') => {
       const task = await c.getTask(taskId);

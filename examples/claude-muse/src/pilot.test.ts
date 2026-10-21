@@ -279,7 +279,9 @@ describe('idempotency and audit across the pilot', () => {
     await ownerApprove(gated.id);
     await muse.poll();
 
-    const audit = await claude.verifyAudit();
+    const audit = (
+      await new OwnerClient({ baseUrl, workspace: WORKSPACE, privateKey: ownerPriv }).auditLog()
+    ).verification;
     expect(audit.ok).toBe(true);
     expect(audit.checked).toBeGreaterThan(0);
   });

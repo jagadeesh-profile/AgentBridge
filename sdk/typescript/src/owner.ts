@@ -4,8 +4,9 @@ import {
   ownerRequestDescriptor,
   payloadHash,
   signDescriptor,
+  verifyAuditChain,
 } from '@agentbridge/contracts';
-import type { ErrorCode } from '@agentbridge/contracts';
+import type { AuditVerification, ErrorCode } from '@agentbridge/contracts';
 
 /**
  * The owner's client (ADR 0006). Authenticates with the owner key alone — no
@@ -46,6 +47,45 @@ export interface AgentSummary {
   scopes: readonly string[];
   keyStatus: 'active' | 'revoked';
   webhookUrl: string | null;
+  createdAt: string;
+}
+
+export interface AuditEntry {
+  seq: number;
+  workspace: string;
+  action: string;
+  actor: string;
+  subject: string;
+  prevHash: string;
+  hash: string;
+  createdAt: string;
+}
+
+export interface DeadLetter {
+  id: string;
+  thread: string;
+  recipient: string;
+  messageId: string;
+  attempts: number;
+  createdAt: string;
+}
+
+interface WireAuditRow {
+  seq: number;
+  action: string;
+  actor: string;
+  subject: string;
+  prev_hash: string;
+  hash: string;
+  created_at: string;
+}
+
+interface WireDeadLetter {
+  id: string;
+  thread: string;
+  recipient: string;
+  messageId: string;
+  attempts: number;
   createdAt: string;
 }
 
@@ -134,6 +174,43 @@ export class OwnerClient {
    */
   async cancelTask(taskId: string): Promise<{ id: string; state: string }> {
     return this.request('DELETE', `/v1/tasks/${encodeURIComponent(taskId)}`);
+  }
+
+  /**
+   * The audit chain, verified HERE rather than taken on trust.
+   *
+   * The hub also offers `/v1/audit/verify`, but that is the hub vouching for
+   * its own log: a hub that rewrote a row would answer "intact" just as
+   * readily. This fetches the rows and recomputes the chain with the shared
+   * rule from `contracts`, so the verdict comes from the data rather than
+   * from the party holding it.
+   */
+  async auditLog(limit = 200): Promise<{ rows: AuditEntry[]; verification: AuditVerification }> {
+    const res = await this.request<{ items: WireAuditRow[] }>('GET', `/v1/audit?limit=${limit}`);
+    const rows = res.items.map((r) => ({
+      seq: r.seq,
+      workspace: this.opts.workspace,
+      action: r.action,
+      actor: r.actor,
+      subject: r.subject,
+      prevHash: r.prev_hash,
+      hash: r.hash,
+      createdAt: r.created_at,
+    }));
+    return { rows, verification: verifyAuditChain(rows) };
+  }
+
+  /** Deliveries that exhausted their retries. */
+  async listDeadLetters(): Promise<DeadLetter[]> {
+    const res = await this.request<{ items: WireDeadLetter[] }>('GET', '/v1/dlq');
+    return res.items.map((d) => ({
+      id: d.id,
+      thread: d.thread,
+      recipient: d.recipient,
+      messageId: d.messageId,
+      attempts: d.attempts,
+      createdAt: d.createdAt,
+    }));
   }
 
   /** Who is in the workspace, and whose key still works. */

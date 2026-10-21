@@ -2,6 +2,11 @@
  * Semver of the wire contract. Additive → minor. Breaking → major + human
  * approval (CLAUDE.md §7).
  *
+ * 0.7.0 — BREAKING. GET /v1/audit/verify and GET /v1/dlq are owner-signed;
+ *         both are workspace-wide views that agent auth exposed to any
+ *         single agent. Adds owner-only GET /v1/audit, which returns the
+ *         chain itself so a client can verify it rather than trust the hub.
+ *         See ADR 0006.
  * 0.6.0 — adds ?include_payload to GET /v1/tasks (default true, so no
  *         consumer breaks) so a task board need not pull every payload.
  *         Additive.
@@ -20,4 +25,4 @@
  *         code, status or field changed, so no consumer breaks.
  * 0.1.0 — initial Phase 0 contract.
  */
-export const CONTRACT_VERSION = '0.6.0';
+export const CONTRACT_VERSION = '0.7.0';

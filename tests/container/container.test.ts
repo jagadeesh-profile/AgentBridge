@@ -353,7 +353,7 @@ describe('trace and audit, through the container', () => {
 
   it('verifies the audit chain inside the container', async () => {
     needsDocker();
-    const out = await claude.verifyAudit();
+    const out = (await h.owner.auditLog()).verification;
     expect(out.ok).toBe(true);
     expect(out.checked).toBeGreaterThan(0);
   });
@@ -375,7 +375,7 @@ describe('state survives a container restart', () => {
       payload: { count: 1 },
     });
     await completeAsMuse(task.id);
-    const auditBefore = await claude.verifyAudit();
+    const auditBefore = (await h.owner.auditLog()).verification;
 
     await h.restart();
 
@@ -387,7 +387,7 @@ describe('state survives a container restart', () => {
     expect(after.state).toBe('completed');
     expect(after.artifacts.map((a) => a.name)).toContain('matches.json');
 
-    const auditAfter = await claude.verifyAudit();
+    const auditAfter = (await h.owner.auditLog()).verification;
     expect(auditAfter.ok).toBe(true);
     expect(auditAfter.checked).toBeGreaterThanOrEqual(auditBefore.checked);
   });

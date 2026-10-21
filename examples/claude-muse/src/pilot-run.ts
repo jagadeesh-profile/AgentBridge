@@ -91,7 +91,7 @@ async function main(): Promise<void> {
     throw new Error(`approved task did not complete: ${released.state}`);
   }
 
-  const audit = await claude.verifyAudit();
+  const audit = (await owner.auditLog()).verification;
   if (!audit.ok) throw new Error(`audit chain broken at seq ${String(audit.brokenAtSeq)}`);
   say(`audit chain verifies across ${audit.checked} rows`);
 

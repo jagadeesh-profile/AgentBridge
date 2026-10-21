@@ -1,0 +1,70 @@
+{
+  "$ref": "#/definitions/AuditListResponse",
+  "definitions": {
+    "AuditListResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "seq": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "action": {
+                "type": "string",
+                "minLength": 1
+              },
+              "actor": {
+                "type": "string",
+                "minLength": 1
+              },
+              "subject": {
+                "type": "string"
+              },
+              "prev_hash": {
+                "type": "string"
+              },
+              "hash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "seq",
+              "action",
+              "actor",
+              "subject",
+              "prev_hash",
+              "hash",
+              "created_at"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "cursor"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
