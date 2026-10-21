@@ -40,6 +40,24 @@ export interface PendingTask {
   updatedAt: string;
 }
 
+export interface AgentSummary {
+  ref: string;
+  name: string;
+  scopes: readonly string[];
+  keyStatus: 'active' | 'revoked';
+  webhookUrl: string | null;
+  createdAt: string;
+}
+
+interface WireAgent {
+  ref: string;
+  name: string;
+  scopes: string[];
+  key_status: 'active' | 'revoked';
+  webhook_url: string | null;
+  created_at: string;
+}
+
 interface WireTask {
   id: string;
   thread: string;
@@ -95,6 +113,30 @@ export class OwnerClient {
       createdAt: t.created_at,
       updatedAt: t.updated_at,
     }));
+  }
+
+  /** Who is in the workspace, and whose key still works. */
+  async listAgents(): Promise<AgentSummary[]> {
+    const res = await this.request<{ items: WireAgent[] }>('GET', '/v1/agents');
+    return res.items.map((a) => ({
+      ref: a.ref,
+      name: a.name,
+      scopes: a.scopes,
+      keyStatus: a.key_status,
+      webhookUrl: a.webhook_url,
+      createdAt: a.created_at,
+    }));
+  }
+
+  /**
+   * The kill switch: revokes an agent's key and drops its pending deliveries.
+   *
+   * Takes effect on that agent's very next request, because key status is
+   * checked inside signature verification. Irreversible in Phase 0 — there is
+   * no un-revoke, only re-enrolment with a fresh key.
+   */
+  async revokeAgentKey(ref: string): Promise<{ revoked: string }> {
+    return this.request('DELETE', `/v1/agents/${encodeURIComponent(ref)}/key`);
   }
 
   /**

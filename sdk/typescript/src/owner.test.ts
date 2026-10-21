@@ -155,3 +155,65 @@ describe('OwnerClient', () => {
     }
   });
 });
+
+describe('OwnerClient kill switch', () => {
+  function agent(name: string, keyStatus: 'active' | 'revoked' = 'active') {
+    deps.store.putAgent({
+      ref: `agent:${name}`,
+      workspace: 'ws',
+      name,
+      publicKey: 'QUFBQQ==',
+      webhookUrl: null,
+      webhookSecret: null,
+      scopes: ['read', 'message'],
+      keyStatus,
+      capabilities: {},
+      createdAt: '2026-10-20T00:00:00.000Z',
+    });
+  }
+
+  it('lists the roster with key status', async () => {
+    agent('claude');
+    agent('muse');
+    const roster = await owner.listAgents();
+    expect(roster.map((a) => a.ref).sort()).toEqual(['agent:claude', 'agent:muse']);
+    expect(roster.every((a) => a.keyStatus === 'active')).toBe(true);
+  });
+
+  it('revokes a key and the roster then says so', async () => {
+    agent('muse');
+    await owner.revokeAgentKey('agent:muse');
+    const roster = await owner.listAgents();
+    expect(roster.find((a) => a.ref === 'agent:muse')?.keyStatus).toBe('revoked');
+    expect(deps.store.getAgent('ws', 'agent:muse')?.keyStatus).toBe('revoked');
+  });
+
+  it('drops that agent pending deliveries, so in-flight work stops too', async () => {
+    agent('muse');
+    deps.store.putOutbox({
+      id: 'ob_1',
+      workspace: 'ws',
+      thread: 'thr_1',
+      recipient: 'agent:muse',
+      messageId: 'msg_1',
+      attempts: 0,
+      nextAttemptAt: '2026-10-20T12:00:00.000Z',
+      state: 'pending',
+      ackedAt: null,
+      createdAt: '2026-10-20T12:00:00.000Z',
+    });
+    await owner.revokeAgentKey('agent:muse');
+    expect(deps.store.listInbox('ws', 'agent:muse', null, 10)).toHaveLength(0);
+  });
+
+  it('encodes the ref, so a colon in agent:muse survives the path', async () => {
+    agent('muse');
+    // `agent:muse` unencoded would make the hub see a different path than the
+    // one that was signed.
+    await expect(owner.revokeAgentKey('agent:muse')).resolves.toEqual({ revoked: 'agent:muse' });
+  });
+
+  it('404s rather than silently succeeding on an unknown agent', async () => {
+    await expect(owner.revokeAgentKey('agent:ghost')).rejects.toMatchObject({ code: 'not_found' });
+  });
+});

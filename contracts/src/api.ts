@@ -135,6 +135,24 @@ export const TaskListResponse = z.object({
   cursor: z.string().min(1).nullable(),
 });
 
+/**
+ * The owner's roster (ADR 0006). No `public_key` and no `webhook_secret`: the
+ * question this answers is "who is here and can they still act", and the
+ * secret is shown once at registration and never again.
+ */
+export const AgentListResponse = z.object({
+  items: z.array(
+    z.object({
+      ref: AgentRefSchema,
+      name: z.string().min(1),
+      scopes: z.array(ScopeSchema),
+      key_status: z.enum(['active', 'revoked']),
+      webhook_url: z.string().url().nullable(),
+      created_at: z.string().datetime({ offset: true }),
+    }),
+  ),
+});
+
 export const ErrorResponse = z.object({
   error: z.object({
     code: z.string().min(1),
@@ -153,3 +171,4 @@ export type InboxQueryT = z.infer<typeof InboxQuery>;
 export type InboxResponseT = z.infer<typeof InboxResponse>;
 export type TaskListQueryT = z.infer<typeof TaskListQuery>;
 export type TaskListResponseT = z.infer<typeof TaskListResponse>;
+export type AgentListResponseT = z.infer<typeof AgentListResponse>;

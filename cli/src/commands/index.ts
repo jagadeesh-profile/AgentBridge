@@ -8,6 +8,7 @@ import {
   publicKeyBase64,
   registerAgent as sdkRegisterAgent,
   saveKey,
+  type AgentSummary,
   type PendingTask,
 } from '@agentbridge/sdk';
 
@@ -27,6 +28,22 @@ async function ownerClient(env: Env, ownerKeyPath: string): Promise<OwnerClient>
     privateKey: await loadKey(ownerKeyPath),
     ...(env.fetch === undefined ? {} : { fetch: env.fetch }),
   });
+}
+
+/* ------------------------------------------------------------------ agents */
+
+/** The roster, so `revoke` has something to name. */
+export async function agents(env: Env, opts: { ownerKeyPath: string }): Promise<AgentSummary[]> {
+  const items = await (await ownerClient(env, opts.ownerKeyPath)).listAgents();
+  if (items.length === 0) {
+    env.write('no agents registered');
+    return items;
+  }
+  for (const a of items) {
+    const mark = a.keyStatus === 'revoked' ? 'REVOKED' : 'active ';
+    env.write(`${mark}  ${a.ref}  [${a.scopes.join(', ')}]`);
+  }
+  return items;
 }
 
 /* ----------------------------------------------------------------- pending */
@@ -183,20 +200,14 @@ export async function approve(
  */
 export async function revoke(
   env: Env,
-  opts: { ref: string; agentRef: string; agentKeyPath: string; yes?: boolean | undefined },
+  opts: { ref: string; ownerKeyPath: string; yes?: boolean | undefined },
 ): Promise<{ revoked: string }> {
   if (opts.yes !== true) {
     throw new Error(`refusing to revoke ${opts.ref} without --yes`);
   }
-  const client = new Client({
-    baseUrl: env.baseUrl,
-    workspace: env.workspace,
-    agent: opts.agentRef,
-    privateKey: await loadKey(opts.agentKeyPath),
-    ...(env.fetch === undefined ? {} : { fetch: env.fetch }),
-  });
-
-  const out = await client.revokeAgentKey(opts.ref);
+  // Owner-signed (ADR 0006). This used to accept any agent key, which meant
+  // any agent could revoke any other.
+  const out = await (await ownerClient(env, opts.ownerKeyPath)).revokeAgentKey(opts.ref);
   env.write(`revoked ${out.revoked}; pending deliveries dropped`);
   return out;
 }

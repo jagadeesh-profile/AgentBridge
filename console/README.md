@@ -47,8 +47,20 @@ the hub refuses the decision (`approval_hash_mismatch`).
 
 See [ADR 0006](../docs/adr/0006-owner-authenticated-routes.md).
 
+## The kill switch
+
+The **Agents** tab lists the workspace roster and revokes a key. Revoking stops
+that agent on its very next request — key status is checked inside signature
+verification — and drops whatever was already queued for it.
+
+It asks you to type the agent's name rather than accepting one click. There is
+no un-revoke in Phase 0; the agent must be re-enrolled with a new key.
+
+Until ADR 0006 this endpoint accepted **any** authenticated agent with no scope
+check, so an agent holding the default `read` + `message` could revoke every
+other agent in the workspace. It is owner-only now.
+
 ## Not yet here
 
-Task board, audit viewer, kill switch, and anything resembling multi-user
-access. Phase 0 is one owner with one key; ADR 0004 names WebAuthn as the
+Task board, audit viewer, and anything resembling multi-user access. Phase 0 is one owner with one key; ADR 0004 names WebAuthn as the
 eventual home for that key, which would remove the file picker.

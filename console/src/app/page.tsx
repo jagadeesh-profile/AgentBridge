@@ -2,8 +2,9 @@
 
 import { useCallback, useState } from 'react';
 import { canonicalize, payloadHash } from '@agentbridge/contracts';
-import { OwnerClient, type PendingTask } from '@agentbridge/sdk/owner';
+import { OwnerClient, type AgentSummary, type PendingTask } from '@agentbridge/sdk/owner';
 import { OwnerKeyError, parseOwnerKey, wipeKey } from '@/lib/owner-key';
+import { Agents } from '@/components/agents';
 
 /**
  * The approvals queue.
@@ -23,12 +24,18 @@ interface Session {
 export default function ApprovalsPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [tasks, setTasks] = useState<PendingTask[] | null>(null);
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
+  const [view, setView] = useState<'approvals' | 'agents'>('approvals');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const refresh = useCallback(async (c: OwnerClient) => {
     try {
-      setTasks(await c.listPendingApprovals());
+      // Both in one go: revoking changes who can act, and a stale approval
+      // list beside a fresh roster is the confusing combination.
+      const [pending, roster] = await Promise.all([c.listPendingApprovals(), c.listAgents()]);
+      setTasks(pending);
+      setAgents(roster);
       setError(null);
     } catch (err) {
       setTasks(null);
@@ -57,7 +64,12 @@ export default function ApprovalsPage() {
     // leave the owner on a signed-in screen, holding a key, wondering why
     // every button fails.
     try {
-      setTasks(await client.listPendingApprovals());
+      const [pending, roster] = await Promise.all([
+        client.listPendingApprovals(),
+        client.listAgents(),
+      ]);
+      setTasks(pending);
+      setAgents(roster);
     } catch (err) {
       wipeKey(key);
       setError(describe(err));
@@ -71,6 +83,8 @@ export default function ApprovalsPage() {
     if (session !== null) wipeKey(session.key);
     setSession(null);
     setTasks(null);
+    setAgents([]);
+    setView('approvals');
     setError(null);
   }
 
@@ -133,7 +147,7 @@ export default function ApprovalsPage() {
   return (
     <main>
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <h1>Awaiting your decision</h1>
+        <h1>{view === 'approvals' ? 'Awaiting your decision' : 'Agents'}</h1>
         <div className="row">
           <button onClick={() => void refresh(session.client)}>Refresh</button>
           <button onClick={lock}>Lock</button>
@@ -143,57 +157,89 @@ export default function ApprovalsPage() {
         Workspace <code>{session.workspace}</code>
       </p>
 
+      <div className="row tabs">
+        <button
+          className={view === 'approvals' ? 'tab on' : 'tab'}
+          onClick={() => setView('approvals')}
+        >
+          Approvals{tasks !== null && tasks.length > 0 ? ` (${tasks.length})` : ''}
+        </button>
+        <button className={view === 'agents' ? 'tab on' : 'tab'} onClick={() => setView('agents')}>
+          Agents ({agents.length})
+        </button>
+      </div>
+
       {error !== null && <p className="error">{error}</p>}
+
+      {view === 'agents' && (
+        <Agents
+          client={session.client}
+          agents={agents}
+          onChanged={() => void refresh(session.client)}
+        />
+      )}
 
       {/* Not merely `tasks === null`: a failed load leaves tasks null, and
           "Loading…" under an error message reads as a request still in flight. */}
-      {tasks === null && error === null && <p className="empty">Loading…</p>}
-      {tasks !== null && tasks.length === 0 && (
+      {view === 'approvals' && tasks === null && error === null && (
+        <p className="empty">Loading…</p>
+      )}
+      {view === 'approvals' && tasks !== null && tasks.length === 0 && (
         <p className="empty">Nothing is waiting. Your agents are unblocked.</p>
       )}
 
-      {tasks?.map((task) => {
-        // Recomputed here, from the payload rendered below. This is the value
-        // that gets signed — never task.payloadHash, which is the hub's claim
-        // about its own data. Showing it lets the owner compare against the
-        // CLI if they ever want to.
-        const hash = payloadHash(task.payload);
-        return (
-          <section className="panel task" key={task.id}>
-            <h2>{task.title}</h2>
-            <p className="meta">
-              <code>{task.id}</code> · {task.creator} → {task.assignee} · waiting since{' '}
-              {new Date(task.createdAt).toLocaleString()}
-            </p>
-            <pre>{canonicalize(task.payload)}</pre>
-            <p className="hash">
-              payload sha256 {hash}
-              {hash !== task.payloadHash && ' — DISAGREES WITH THE HUB; refuse this one'}
-            </p>
-            <div className="row">
-              <button
-                className="primary"
-                disabled={busy !== null}
-                onClick={() => void decide(task, 'approve')}
-              >
-                {busy === task.id ? 'Signing…' : 'Approve'}
-              </button>
-              <button
-                className="danger"
-                disabled={busy !== null}
-                onClick={() => void decide(task, 'reject')}
-              >
-                Reject
-              </button>
-            </div>
-          </section>
-        );
-      })}
+      {view === 'approvals' &&
+        tasks?.map((task) => {
+          // Recomputed here, from the payload rendered below. This is the value
+          // that gets signed — never task.payloadHash, which is the hub's claim
+          // about its own data. Showing it lets the owner compare against the
+          // CLI if they ever want to.
+          const hash = payloadHash(task.payload);
+          return (
+            <section className="panel task" key={task.id}>
+              <h2>{task.title}</h2>
+              <p className="meta">
+                <code>{task.id}</code> · {task.creator} → {task.assignee} · waiting since{' '}
+                {new Date(task.createdAt).toLocaleString()}
+              </p>
+              <pre>{canonicalize(task.payload)}</pre>
+              <p className="hash">
+                payload sha256 {hash}
+                {hash !== task.payloadHash && ' — DISAGREES WITH THE HUB; refuse this one'}
+              </p>
+              <div className="row">
+                <button
+                  className="primary"
+                  disabled={busy !== null}
+                  onClick={() => void decide(task, 'approve')}
+                >
+                  {busy === task.id ? 'Signing…' : 'Approve'}
+                </button>
+                <button
+                  className="danger"
+                  disabled={busy !== null}
+                  onClick={() => void decide(task, 'reject')}
+                >
+                  Reject
+                </button>
+              </div>
+            </section>
+          );
+        })}
 
       <p className="warn">
-        Read the payload, not the title — the title is written by the agent that asked. Your
-        signature covers the payload shown above and nothing else; if it changes before you decide,
-        the hub refuses the approval rather than applying it to the new one.
+        {view === 'approvals' ? (
+          <>
+            Read the payload, not the title — the title is written by the agent that asked. Your
+            signature covers the payload shown above and nothing else; if it changes before you
+            decide, the hub refuses the approval rather than applying it to the new one.
+          </>
+        ) : (
+          <>
+            Revoking takes effect on that agent&rsquo;s next request and discards anything already
+            queued for it. There is no un-revoke — the agent must be re-enrolled with a new key.
+          </>
+        )}
       </p>
     </main>
   );

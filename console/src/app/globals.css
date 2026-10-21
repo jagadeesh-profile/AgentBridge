@@ -185,3 +185,35 @@ input[type='file'] {
   text-align: center;
   padding: 2.5rem 0;
 }
+
+.tabs {
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.75rem;
+}
+
+button.tab {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  padding: 0.35rem 0.75rem;
+}
+
+button.tab.on {
+  background: var(--panel-raised);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.revoked-tag {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}

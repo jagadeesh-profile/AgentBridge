@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import {
+  agents,
   approve,
   pending,
   auditVerify,
@@ -18,7 +19,8 @@ const USAGE = `agentbridge — AgentBridge owner CLI
                        [--scopes a,b] [--webhook-url <url>] [--skills a,b]
   agentbridge pending  --owner-key <path>
   agentbridge approve  --task <id> --owner-key <path> [--reject] --yes
-  agentbridge revoke   --ref <agent:slug> --agent <ref> --agent-key <path> --yes
+  agentbridge agents   --owner-key <path>
+  agentbridge revoke   --ref <agent:slug> --owner-key <path> --yes
   agentbridge inbox    --agent <ref> --agent-key <path> [--limit n]
   agentbridge audit verify --agent <ref> --agent-key <path>
 
@@ -118,11 +120,14 @@ async function main(argv: string[]): Promise<void> {
       });
       return;
 
+    case 'agents':
+      await agents(e, { ownerKeyPath: need(values['owner-key'], '--owner-key') });
+      return;
+
     case 'revoke':
       await revoke(e, {
         ref: need(values.ref, '--ref'),
-        agentRef: agentRef(),
-        agentKeyPath: agentKey(),
+        ownerKeyPath: need(values['owner-key'], '--owner-key'),
         ...(values.yes === true ? { yes: true } : {}),
       });
       return;

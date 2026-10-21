@@ -22,6 +22,8 @@ export interface Harness {
   ownerApprove: (taskId: string, decision?: 'approve' | 'reject') => Promise<unknown>;
   /** Signs a decision over a hash the caller chooses — for negative tests. */
   ownerApproveWithHash: (taskId: string, hash: string) => Promise<Response>;
+  /** The owner's client: approvals, the queue and the kill switch (ADR 0006). */
+  owner: OwnerClient;
   registerAgent: (name: string, webhookUrl?: string | null) => Promise<Uint8Array>;
   stop: () => Promise<void>;
 }
@@ -99,6 +101,7 @@ export async function startHarness(workspace = 'ws_e2e'): Promise<Harness> {
 
   return {
     baseUrl,
+    owner,
     store,
     app,
     worker,

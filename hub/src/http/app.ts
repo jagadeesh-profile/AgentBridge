@@ -70,10 +70,21 @@ const OPEN_PATHS = new Set(['/healthz', '/v1/agents']);
 const OWNER_ROUTES: readonly (readonly [string, string])[] = [
   ['POST', '/v1/approvals'],
   ['GET', '/v1/tasks'],
+  ['GET', '/v1/agents'],
+  // The kill switch. Until ADR 0006 this was `requireAgent` with no scope
+  // check, so any agent holding the default read+message could revoke every
+  // other agent in the workspace — the opposite of CLAUDE.md §1.8.
+  ['DELETE', '/v1/agents/:ref/key'],
 ];
 
-const isOwnerRoute = (method: string, path: string): boolean =>
-  OWNER_ROUTES.some(([m, p]) => m === method && p === path);
+/**
+ * Matched against Fastify's route PATTERN, not the concrete URL, so a
+ * parameterised route is recognised without re-implementing path matching
+ * here. The pattern decides who may call; the concrete path is still what the
+ * signature covers, so swapping `:ref` after signing invalidates it.
+ */
+const isOwnerRoute = (method: string, routePattern: string | undefined): boolean =>
+  routePattern !== undefined && OWNER_ROUTES.some(([m, p]) => m === method && p === routePattern);
 
 export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
@@ -166,7 +177,7 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
     // Owner-only routes (ADR 0006). `req.agent` stays undefined on these, so a
     // handler that reached for an agent would fail rather than silently act as
     // one; the workspace comes from the signature, never from the header.
-    if (isOwnerRoute(req.method, path)) {
+    if (isOwnerRoute(req.method, req.routeOptions.url)) {
       req.ownerWorkspace = await authenticateOwner(deps, deps.ownerPublicKey, {
         method: req.method,
         path,
@@ -284,9 +295,26 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
     };
   });
 
+  /** The owner's roster: who exists and whose key still works. */
+  app.get('/v1/agents', async (req) => {
+    const ws = requireOwner(req);
+    return {
+      items: deps.store.listAgents(ws).map((a) => ({
+        ref: a.ref,
+        name: a.name,
+        scopes: a.scopes,
+        key_status: a.keyStatus,
+        // Deliberately no public_key and no webhook_secret. The roster answers
+        // "who is here and can they still act"; neither is needed for that,
+        // and the secret must not leave the hub a second time.
+        webhook_url: a.webhookUrl,
+        created_at: a.createdAt,
+      })),
+    };
+  });
+
   app.delete<{ Params: { ref: string } }>('/v1/agents/:ref/key', async (req) => {
-    const ws = workspaceOf(req);
-    requireAgent(req);
+    const ws = requireOwner(req);
     revokeKey(deps, ws, decodeURIComponent(req.params.ref));
     return { revoked: decodeURIComponent(req.params.ref) };
   });

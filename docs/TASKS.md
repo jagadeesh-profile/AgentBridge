@@ -20,7 +20,7 @@ see "Verification debt".
 | Command | Result |
 |---|---|
 | `pnpm --filter @agentbridge/console run build` | **compiles** |
-| `make check` — lint, `tsc --strict`, unit, contract-drift | **450 tests** |
+| `make check` — lint, `tsc --strict`, unit, contract-drift | **467 tests** |
 | `make test-e2e` — real hub, SQLite on disk, delivery worker | **24 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests** |
 | `make conformance` — MCP tool surface | **8 tests** |
@@ -90,7 +90,9 @@ see "Verification debt".
 | `contracts` isomorphic (`@noble/hashes`, not `node:crypto`) | ✅ so the console can hash in the browser |
 | `OwnerClient` + `agentbridge pending`; `approve` drops `--agent`/`--agent-key` | ✅ one key for the owner |
 | **Console — approvals view** | ✅ Next.js; key in-browser only; driven in a real browser against a real hub |
-| Console — task board, audit viewer, kill switch | ⬜ next console pass |
+| **Console — kill switch** | ✅ owner-signed revoke + roster; typed-name confirmation |
+| `DELETE /v1/agents/{ref}/key` was callable by ANY agent | ✅ security fix; owner-only (ADR 0006), contract 0.5.0 |
+| Console — task board, audit viewer | ⬜ next console pass |
 
 ## What TDD caught that the plan got wrong
 

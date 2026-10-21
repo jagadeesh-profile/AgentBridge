@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AgentBridge
-  version: 0.4.0
+  version: 0.5.0
   description: Generated from contracts/src/*.ts. Do not edit by hand; run `make contracts`.
 paths:
   /v1/agents:
@@ -65,10 +65,28 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/RegisterAgentRequest"
+    get:
+      operationId: listAgents
+      summary: "Owner-signed roster: who exists, their scopes and whose key still
+        works."
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentListResponse"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "429": *a6
   /v1/agents/{ref}/key:
     delete:
       operationId: revokeAgentKey
-      summary: "Kill switch: revoke the key and drop that agent’s pending deliveries."
+      summary: "Owner-signed kill switch: revoke the key and drop that agent’s pending
+        deliveries."
       responses:
         "200":
           description: Success
@@ -246,6 +264,57 @@ paths:
         "429": *a6
 components:
   schemas:
+    AgentListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              ref:
+                type: string
+                pattern: ^agent:[a-z0-9][a-z0-9_-]{0,62}$
+                description: "A registered agent, always prefixed agent: — never a human
+                  account."
+              name:
+                type: string
+                minLength: 1
+              scopes:
+                type: array
+                items:
+                  type: string
+                  enum:
+                    - read
+                    - message
+                    - create_task
+                    - write_artifact
+                    - request_side_effect
+              key_status:
+                type: string
+                enum:
+                  - active
+                  - revoked
+              webhook_url:
+                anyOf:
+                  - type: string
+                    format: uri
+                  - type: "null"
+              created_at:
+                type: string
+                format: date-time
+            required:
+              - ref
+              - name
+              - scopes
+              - key_status
+              - webhook_url
+              - created_at
+            additionalProperties: false
+      required:
+        - items
+      additionalProperties: false
+      $schema: http://json-schema.org/draft-07/schema#
     ApprovalDecisionRequest:
       type: object
       properties:

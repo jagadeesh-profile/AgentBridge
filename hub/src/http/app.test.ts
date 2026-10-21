@@ -703,6 +703,83 @@ describe('owner-authenticated routes (ADR 0006)', () => {
       expect(deps.store.getTask('ws', 'tsk_a')?.state).toBe('needs-approval');
     });
 
+    describe('the kill switch', () => {
+      it('revokes on an owner-signed request', async () => {
+        const res = await app.inject(await ownerSigned('DELETE', '/v1/agents/agent%3Amuse/key'));
+        expect(res.statusCode).toBe(200);
+        expect(deps.store.getAgent('ws', 'agent:muse')?.keyStatus).toBe('revoked');
+      });
+
+      it('REFUSES an agent-signed revoke — one agent must not kill another', async () => {
+        // Before ADR 0006 this route was `requireAgent` with no scope check, so
+        // any agent holding read+message could revoke every other agent in the
+        // workspace. Least privilege (CLAUDE.md §1.8) says it could not.
+        const res = await app.inject(await signed('DELETE', '/v1/agents/agent%3Amuse/key'));
+        expect(res.statusCode).toBe(401);
+        expect(deps.store.getAgent('ws', 'agent:muse')?.keyStatus).toBe('active');
+      });
+
+      it('REFUSES a revoke signed by a key that is not the owner key', async () => {
+        const res = await app.inject(
+          await ownerSigned('DELETE', '/v1/agents/agent%3Amuse/key', undefined, {
+            signWith: ed.utils.randomPrivateKey(),
+          }),
+        );
+        expect(res.statusCode).toBe(401);
+        expect(deps.store.getAgent('ws', 'agent:muse')?.keyStatus).toBe('active');
+      });
+
+      it('binds the AGENT REF, so a signature cannot be retargeted at another agent', async () => {
+        // The ref is in the path, which the descriptor covers. Swapping it after
+        // signing must not revoke a different agent.
+        const forMuse = await ownerSigned('DELETE', '/v1/agents/agent%3Amuse/key');
+        const res = await app.inject({ ...forMuse, url: '/v1/agents/agent%3Aclaude/key' });
+        expect(res.statusCode).toBe(401);
+        expect(deps.store.getAgent('ws', 'agent:claude')?.keyStatus).toBe('active');
+        expect(deps.store.getAgent('ws', 'agent:muse')?.keyStatus).toBe('active');
+      });
+
+      it('404s on an unknown agent rather than reporting success', async () => {
+        const res = await app.inject(await ownerSigned('DELETE', '/v1/agents/agent%3Aghost/key'));
+        expect(res.statusCode).toBe(404);
+      });
+    });
+
+    describe('GET /v1/agents', () => {
+      it('lists the workspace roster with key status, for an owner-signed request', async () => {
+        const res = await app.inject(await ownerSigned('GET', '/v1/agents'));
+        expect(res.statusCode).toBe(200);
+        const items = res.json().items as { ref: string; key_status: string }[];
+        expect(items.map((a) => a.ref).sort()).toEqual(['agent:claude', 'agent:muse']);
+        expect(items.every((a) => a.key_status === 'active')).toBe(true);
+      });
+
+      it('reflects a revoked key, so the console can show what it did', async () => {
+        await app.inject(await ownerSigned('DELETE', '/v1/agents/agent%3Amuse/key'));
+        const res = await app.inject(await ownerSigned('GET', '/v1/agents'));
+        const muse = (res.json().items as { ref: string; key_status: string }[]).find(
+          (a) => a.ref === 'agent:muse',
+        );
+        expect(muse?.key_status).toBe('revoked');
+      });
+
+      it('NEVER returns a public key, which the roster has no need for', async () => {
+        const res = await app.inject(await ownerSigned('GET', '/v1/agents'));
+        expect(res.body).not.toMatch(/public_key|publicKey|webhook_secret|webhookSecret/);
+      });
+
+      it('REFUSES an agent signature — the roster is for the owner', async () => {
+        expect((await app.inject(await signed('GET', '/v1/agents'))).statusCode).toBe(401);
+      });
+
+      it('does not leak another workspace', async () => {
+        const res = await app.inject(
+          await ownerSigned('GET', '/v1/agents', undefined, { workspace: 'ws_other' }),
+        );
+        expect(res.json().items).toEqual([]);
+      });
+    });
+
     it('still enforces the payload-hash binding under the new auth', async () => {
       gated('tsk_a', { to: 'a@b.com' });
       // Signed for a different payload than the task actually holds.

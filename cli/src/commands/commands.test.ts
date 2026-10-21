@@ -10,6 +10,7 @@ import { payloadHash } from '@agentbridge/contracts';
 import * as ed from '@noble/ed25519';
 import { saveKey } from '@agentbridge/sdk';
 import {
+  agents,
   approve,
   auditVerify,
   inbox,
@@ -267,15 +268,36 @@ describe('revoke', () => {
       ackedAt: null,
       createdAt: '2026-10-20T12:00:00.000Z',
     });
-    const out = await revoke(env, { ref: 'agent:muse', ...agentOpts(), yes: true });
+    const out = await revoke(env, { ref: 'agent:muse', ownerKeyPath, yes: true });
     expect(out.revoked).toBe('agent:muse');
     expect(deps.store.getAgent('ws', 'agent:muse')?.keyStatus).toBe('revoked');
     expect(deps.store.listInbox('ws', 'agent:muse', null, 10)).toHaveLength(0);
   });
 
   it('refuses without --yes', async () => {
-    await expect(revoke(env, { ref: 'agent:muse', ...agentOpts() })).rejects.toThrow(/--yes/);
+    await expect(revoke(env, { ref: 'agent:muse', ownerKeyPath })).rejects.toThrow(/--yes/);
     expect(deps.store.getAgent('ws', 'agent:muse')?.keyStatus).toBe('active');
+  });
+});
+
+describe('revoke is owner-only', () => {
+  it('REFUSES an agent key — an agent must not be able to kill another', async () => {
+    // The old signature took --agent/--agent-key and any agent key worked.
+    await expect(
+      revoke(env, { ref: 'agent:muse', ownerKeyPath: claudeKeyPath, yes: true }),
+    ).rejects.toMatchObject({ code: 'unauthenticated' });
+    expect(deps.store.getAgent('ws', 'agent:muse')?.keyStatus).toBe('active');
+  });
+});
+
+describe('agents', () => {
+  it('lists the roster and marks revoked keys', async () => {
+    await revoke(env, { ref: 'agent:muse', ownerKeyPath, yes: true });
+    const roster = await agents(env, { ownerKeyPath });
+    expect(roster).toHaveLength(2);
+    const out = lines.join('\n');
+    expect(out).toMatch(/REVOKED\s+agent:muse/);
+    expect(out).toMatch(/active\s+agent:claude/);
   });
 });
 

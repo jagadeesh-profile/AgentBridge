@@ -73,12 +73,18 @@ const paths = {
       status: 201,
       summary: 'Register an agent with its capabilities card, public key and scopes (FR-1).',
     }),
+    get: operation({
+      operationId: 'listAgents',
+      status: 200,
+      ok: 'AgentListResponse',
+      summary: 'Owner-signed roster: who exists, their scopes and whose key still works.',
+    }),
   },
   '/v1/agents/{ref}/key': {
     delete: operation({
       operationId: 'revokeAgentKey',
       status: 200,
-      summary: 'Kill switch: revoke the key and drop that agent’s pending deliveries.',
+      summary: 'Owner-signed kill switch: revoke the key and drop that agent’s pending deliveries.',
     }),
   },
   '/v1/messages': {

@@ -344,7 +344,8 @@ describe('6. security negatives', () => {
   });
 
   it('rejects a request signed with a revoked key', async () => {
-    await h.claude.revokeAgentKey('agent:muse');
+    // Owner-signed: an agent revoking another agent is refused outright now.
+    await h.owner.revokeAgentKey('agent:muse');
     await expect(h.muse.listInbox()).rejects.toMatchObject({ code: 'key_revoked' });
   });
 

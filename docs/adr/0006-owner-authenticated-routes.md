@@ -5,7 +5,8 @@
 - **Deciders:** owner (Jagadeesh), lead
 - **Extends:** [0005](0005-owner-signed-registration.md) (owner-signed registration)
 - **Relates to:** [0002](0002-signature-only-auth-phase-0.md); `CLAUDE.md` §1.3, §1.6, §7
-- **Contract:** breaking; `CONTRACT_VERSION` 0.3.0 → 0.4.0
+- **Contract:** breaking; `CONTRACT_VERSION` 0.3.0 → 0.4.0 (approvals, task
+  listing), then → 0.5.0 (the roster and the kill switch)
 
 ## Context
 
@@ -37,7 +38,9 @@ A console must do the same, in the page — which means hashing in a browser.
 
 **Owner-facing routes verify an Ed25519 signature from the owner**, extending
 ADR 0005's scheme from enrolment to the rest of the owner's surface. Three
-parts.
+parts. The route list grew once after this ADR was first accepted — the roster
+and the kill switch — which is recorded here rather than in a new ADR, because
+the decision is the same one applied to more routes.
 
 ### 1. `ownerRequestDescriptor`
 
@@ -62,7 +65,7 @@ Two properties beyond reusing `requestDescriptor`:
 Replay is checked before anything else succeeds, on the same signature-hash
 nonce as registration.
 
-### 2. `GET /v1/tasks?state=needs-approval`
+### 2. `GET /v1/tasks?state=needs-approval`, `GET /v1/agents`, and the kill switch
 
 Owner-only, matched on method *and* path — `POST /v1/tasks` remains an agent
 creating work. Returns the payload and the hub's `payload_hash` so a client can
@@ -70,6 +73,21 @@ compare the two. Oldest first, so the queue is FIFO and the longest-blocked task
 is at the top; migration 002 adds `tasks(workspace, state, created_at, id)`,
 since the existing index leads with `assignee` and cannot serve a query that
 does not know one.
+
+`GET /v1/agents` is the roster — who exists, their scopes, and whose key still
+works — deliberately without `public_key` or `webhook_secret`, neither of which
+that question needs.
+
+`DELETE /v1/agents/{ref}/key`, the kill switch, moved here too, and that is a
+security fix rather than a convenience. It was `requireAgent` with **no scope
+check**, so any agent holding the default `read` + `message` could revoke every
+other agent in the workspace — the exact opposite of `CLAUDE.md` §1.8. There is
+no `revoke` scope to have checked; the only gate was "be authenticated at all".
+
+Owner routes are matched on Fastify's route *pattern*, not the concrete URL, so
+a parameterised path is recognised without re-implementing path matching. The
+signature still covers the concrete path, so swapping `:ref` after signing
+invalidates it — tested.
 
 ### 3. The owner key stays in the browser
 
@@ -98,6 +116,9 @@ hub asserted — the gate would be verifying a signature over the hub's own clai
   approval" is now true of the request as well as the payload.
 - An agent cannot reach the approval endpoint at all, rather than being stopped
   one layer in by the body signature. Defence moved outward.
+- The kill switch is no longer reachable by the agents it exists to stop, and
+  it is now in the console — the surface you reach for when something is going
+  wrong, rather than a terminal and a key path.
 - §1.6 ("the hub stores no secrets") gains a sibling: the console stores none
   either. Enforced by tests that grep its sources for storage APIs and `node:`
   imports, plus a third asserting the file list is non-empty — a guard over an
@@ -115,6 +136,10 @@ hub asserted — the gate would be verifying a signature over the hub's own clai
   it.
 - Two descriptor formats now exist. A third would be a smell — the next
   owner-facing route should reuse this one, not invent another.
+- Revoking is irreversible in Phase 0: there is no un-revoke, only re-enrolment
+  with a fresh key. The console asks the owner to type the agent's name rather
+  than accepting one click, which is the same bar as the CLI's `--yes` placed
+  where a misclick is likeliest — but it is a confirmation, not an undo.
 - `GET /v1/tasks` returns full payloads to the owner. Correct — they must read
   what they are approving — but it means the owner route is the one place a
   whole payload crosses the wire, and it must never be logged.
