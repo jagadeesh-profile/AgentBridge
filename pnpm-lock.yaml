@@ -150,6 +150,22 @@ importers:
         specifier: workspace:*
         version: link:../../hub
 
+  cli:
+    dependencies:
+      '@agentbridge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@agentbridge/sdk':
+        specifier: workspace:*
+        version: link:../sdk/typescript
+      '@noble/ed25519':
+        specifier: 2.3.0
+        version: 2.3.0
+    devDependencies:
+      '@agentbridge/hub':
+        specifier: workspace:*
+        version: link:../hub
+
   contracts:
     dependencies:
       '@noble/ed25519':

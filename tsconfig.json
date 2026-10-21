@@ -15,6 +15,9 @@
     },
     {
       "path": "./adapters/mcp"
+    },
+    {
+      "path": "./cli"
     }
   ]
 }

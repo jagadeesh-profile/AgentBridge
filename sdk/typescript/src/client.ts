@@ -182,6 +182,40 @@ export class Client {
     return this.request('GET', '/v1/audit/verify');
   }
 
+  /**
+   * Submits an owner-signed approval decision.
+   *
+   * Two signatures are in play and they do different jobs: `sig` is the OWNER's
+   * signature over the decision, which the hub verifies against the owner key;
+   * the HTTP request itself is signed by this client's agent key, like every
+   * other call.
+   */
+  async decideApproval(input: {
+    task: string;
+    decision: 'approve' | 'reject';
+    payloadHash: string;
+    issuedAt: string;
+    sig: string;
+  }): Promise<{ id: string; state: string }> {
+    return this.request('POST', '/v1/approvals', {
+      task: input.task,
+      decision: input.decision,
+      payload_hash: input.payloadHash,
+      issued_at: input.issuedAt,
+      sig: input.sig,
+    });
+  }
+
+  /** The kill switch: revokes an agent's key and drops its pending deliveries. */
+  async revokeAgentKey(ref: string): Promise<{ revoked: string }> {
+    return this.request('DELETE', `/v1/agents/${encodeURIComponent(ref)}/key`);
+  }
+
+  /** Dead-lettered deliveries, for the owner's DLQ view. */
+  async listDeadLetters(): Promise<{ items: { id: string; recipient: string }[] }> {
+    return this.request('GET', '/v1/dlq');
+  }
+
   private async request<T>(method: string, pathWithQuery: string, bodyObj?: unknown): Promise<T> {
     const [bare, qs] = pathWithQuery.split('?');
     const path = bare ?? pathWithQuery;

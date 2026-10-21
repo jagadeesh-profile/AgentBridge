@@ -1,0 +1,29 @@
+{
+  "name": "@agentbridge/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "agentbridge": "./dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/commands/index.js"
+  },
+  "main": "./dist/commands/index.js",
+  "types": "./dist/commands/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --dir src",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@agentbridge/contracts": "workspace:*",
+    "@agentbridge/sdk": "workspace:*",
+    "@noble/ed25519": "2.3.0"
+  },
+  "devDependencies": {
+    "@agentbridge/hub": "workspace:*"
+  }
+}
