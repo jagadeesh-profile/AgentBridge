@@ -18,6 +18,7 @@ export AGENTBRIDGE_OWNER_PUBLIC_KEY=$(... agentbridge keygen --out owner.key)
 export AGENTBRIDGE_REGISTRATION_TOKEN=$(openssl rand -hex 32)
 make dev            # hub in Docker on :8080
 make check && make test-e2e && make conformance
+make test-container   # builds and drives the real image
 ```
 
 | Gate | Result |
@@ -25,7 +26,7 @@ make check && make test-e2e && make conformance
 | `make check` — lint, `tsc --strict`, unit tests, contract-drift | **336 tests** |
 | `make test-e2e` — real hub: SQLite on disk, delivery worker, real ports | **24 tests** |
 | `make conformance` — MCP tool surface | **8 tests** |
-| Docker | image builds, serves `/healthz`, state survives `docker restart` |
+| `make test-container` — the real Docker image, HTTP only | **20 tests** |
 
 ## Architecture
 
@@ -96,6 +97,14 @@ was wholly unauthenticated and the workspace arrived as a caller-supplied header
 so anyone who could reach the hub could enrol an agent into someone else's
 workspace and message their agents. Registration is now gated by a required
 token, constant-time compared. Four tests failed before the fix.
+
+`make test-container` builds the image, boots it with a generated owner key and
+registration token on a fresh volume, and drives it over HTTP only — no `Store`
+handle exists on that side of the boundary. It covers what the in-process suite
+structurally cannot: the env contract, the entrypoint and workspace links inside
+the image, body redaction in the real log stream read back via `docker logs`,
+that state survives `docker restart`, and the kill switch end to end. It is kept
+out of `make check` and out of CI — a build-plus-boot is minutes, not seconds.
 
 > ⚠️ **That review was a self-review** — same author, same blind spots. A fresh
 > pair of eyes on the approval gate, the signing path and the delivery scheduler
