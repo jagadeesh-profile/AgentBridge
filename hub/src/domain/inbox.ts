@@ -43,8 +43,14 @@ export function listInbox(
     });
   }
 
-  const last = items.at(-1);
-  return { items, cursor: last === undefined ? null : last.id };
+  // The cursor comes from the last ROW the store returned, not the last item
+  // we managed to build. Those differ whenever a row is skipped above, and
+  // taking it from `items` is a liveness bug: a skipped row at the end of a
+  // page leaves the cursor behind it, so the next poll returns the same window,
+  // and a page of only skipped rows yields `null` — which a client reads as
+  // "nothing new". Either way that agent's inbox stops advancing for good.
+  const lastRow = rows.at(-1);
+  return { items, cursor: lastRow === undefined ? null : lastRow.id };
 }
 
 /** Advances the cursor. Idempotent: a second ack of the same range reports 0. */
