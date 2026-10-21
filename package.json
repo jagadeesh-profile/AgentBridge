@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test-e2e": "vitest run --config vitest.integration.config.ts tests/e2e",
     "conformance": "vitest run --config vitest.integration.config.ts tests/conformance",
-    "check": "pnpm run lint && pnpm run test && pnpm run contracts"
+    "check": "pnpm run lint && pnpm run test && pnpm run contracts",
+    "test-container": "vitest run --config vitest.container.config.ts tests/container"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
