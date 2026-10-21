@@ -12,6 +12,9 @@
     },
     {
       "path": "./sdk/typescript"
+    },
+    {
+      "path": "./adapters/mcp"
     }
   ]
 }
