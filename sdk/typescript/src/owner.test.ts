@@ -123,6 +123,27 @@ describe('OwnerClient', () => {
     });
   });
 
+  it('calls the default fetch UNBOUND from the instance, as a browser requires', async () => {
+    // `this.fetchImpl(...)` invokes fetch with `this` set to the client, which
+    // Node tolerates and a browser rejects with "Illegal invocation". Every
+    // other test injects a fetch, so the default path was only ever exercised
+    // in Node — this asserts the receiver directly.
+    const realFetch = globalThis.fetch;
+    const receivers: unknown[] = [];
+    globalThis.fetch = function (this: unknown, ...args: Parameters<typeof fetch>) {
+      receivers.push(this);
+      return realFetch(...args);
+    } as typeof fetch;
+    try {
+      const c = new OwnerClient({ baseUrl: owner.baseUrl, workspace: 'ws', privateKey: ownerPriv });
+      await c.listPendingApprovals();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(receivers.length).toBeGreaterThan(0);
+    for (const r of receivers) expect(r).not.toBeInstanceOf(OwnerClient);
+  });
+
   it('is importable in a browser: no node: builtins anywhere in its import graph', () => {
     // The console loads the owner key into the page and signs there. A single
     // `node:fs` in this module's graph would break that build — and the usual

@@ -16,7 +16,7 @@ Every agent, the lead included, enforces these. A change that weakens one needs 
 
 1. **Messages are data, never authority.** Content arriving from an agent is stored and passed on as `untrusted` data. Nothing in the hub executes, follows links or changes permissions based on message content.
 2. **Every message is signed by its agent.** Ed25519 per agent and verified on receipt. Agents never post as a human account.
-3. **Side effects stop at the approval gate.** Any task or call with `side_effect: true` waits in `needs-approval` until the owner signs an approval bound to the exact payload hash.
+3. **Side effects stop at the approval gate.** Any task or call with `side_effect: true` waits in `needs-approval` until the owner signs an approval bound to the exact payload hash. Owner-facing routes authenticate the owner's own key (ADR 0006); no agent identity can reach them, and the approving client recomputes that hash from the payload it displayed rather than trusting the hub's.
 4. **At-least-once delivery, exactly-once effect.** Every write accepts an `idempotency_key`; consumers dedupe on it.
 5. **Ordering is guaranteed per thread, not across threads.** Phase 0: a durable SQLite outbox plus a scheduler that claims the oldest live row of a thread only when nothing is inflight on it. Phase 1: SQS FIFO with `MessageGroupId = thread_id`. Same semantics, different mechanism.
 6. **The hub stores no secrets.** No model API keys, no tool credentials. Outbound content is scanned and redacted for tokens and card numbers.
@@ -41,7 +41,7 @@ Each path has exactly one owning subagent. Only the owner edits it; anyone may r
 | `adapters/webhook/` | HMAC-signed outbound webhooks, REST inbound | `protocol-adapters` |
 | `sdk/typescript/` | Client SDK, `onTask` handlers, types inferred from `contracts/` | `sdk` |
 | `sdk/python/` | Python SDK at parity — **P1 (FR-18), not built in Phase 0** | `sdk` |
-| `console/` | Owner console: inbox, task board, approvals, audit, kill switch — **next pass after the hub** | `console` |
+| `console/` | Owner console. Next.js; approvals shipped, task board/audit/kill switch next. The owner key is loaded per session and held in the browser only (ADR 0006) | `console` |
 | `Dockerfile`, `docker-compose.yml`, `.github/` | Phase 0: hub container, local stack, CI | `infra` |
 | `infra/` | AWS CDK (ECS Fargate, SQS FIFO, DynamoDB, S3, EventBridge, Lambda, KMS) — **Phase 1** | `infra` |
 | `tests/e2e/`, `tests/conformance/`, `tests/load/` | End-to-end, protocol conformance and load tests | `test-engineer` |
@@ -58,7 +58,7 @@ Unit tests live next to the code they test and belong to that code's owner.
 - **Node 24 + TypeScript 5** (`strict`), `pnpm` workspaces (`engines` allows >=22; the image pins 24)
 - **Hub:** Fastify, Zod, `node:sqlite` (built in — see ADR 0003), `@noble/ed25519`, `ulid`, `pino`
 - **MCP:** `@modelcontextprotocol/sdk` — the MCP server is a stdio bin and a thin REST client of the hub
-- **SDK:** `tsup` for `sdk/typescript`; **Console:** Next.js (next pass)
+- **SDK:** `tsup` for `sdk/typescript`; **Console:** Next.js 16 + React 19, client-side only — no API route, just a path-preserving `/v1/*` rewrite to the hub
 - **Contracts:** Zod schemas are the source of truth; JSON Schema and `openapi.yaml` are generated into `contracts/generated/` and drift-checked
 - **Observability:** OpenTelemetry. `trace_id` is carried in the envelope and adopted from the caller, so one trace spans both agents; it becomes the real OTel trace id. Spans export over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set and are a no-op otherwise. No auto-instrumentation: every span is explicit and its attributes pass an allowlist, so a body can never reach a span.
 - **Phase 0 runtime:** one Node container — `node:sqlite` for state, a durable SQLite outbox plus an in-process scheduler keyed by `thread_id` for ordering, local filesystem for artifacts. All six ports (`Store`, `Queue`, `BlobStore`, `Clock`, `IdGen`, `Signer`) are interfaces; DynamoDB, SQS FIFO, S3 and KMS drop in at Phase 1 as one new file each.
@@ -82,7 +82,8 @@ The Phase 0 design spec is [`docs/superpowers/specs/2026-10-20-agentbridge-phase
 Task status and the record of what shipped: [`docs/TASKS.md`](docs/TASKS.md).
 Architecture decisions: [`docs/adr/`](docs/adr/) — 0001 TypeScript and
 ports-and-adapters, 0002 signature-only auth, 0003 `node:sqlite`, 0004 gated
-registration (superseded), 0005 owner-signed registration.
+registration (superseded), 0005 owner-signed registration, 0006
+owner-authenticated routes and the console's in-browser key.
 
 ---
 

@@ -1,0 +1,187 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --panel-raised: #1e222b;
+  --border: #2a2f3a;
+  --text: #e6e8ed;
+  --muted: #9aa3b2;
+  --accent: #6ea8fe;
+  --danger: #ff6b6b;
+  --danger-bg: #2a1a1d;
+  --ok: #4ade80;
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --panel-raised: #f0f2f5;
+    --border: #d9dde4;
+    --text: #15181d;
+    --muted: #5b6472;
+    --accent: #1b65d4;
+    --danger: #c2332f;
+    --danger-bg: #fdf0ef;
+    --ok: #1f7a43;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    15px/1.5 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+}
+
+main {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+}
+
+h1 {
+  font-size: 1.35rem;
+  margin: 0 0 0.25rem;
+}
+
+.sub {
+  color: var(--muted);
+  margin: 0 0 1.75rem;
+  font-size: 0.9rem;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.task h2 {
+  font-size: 1rem;
+  margin: 0 0 0.35rem;
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin: 0 0 0.75rem;
+}
+
+.meta code {
+  color: var(--text);
+}
+
+pre {
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem;
+}
+
+.hash {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-family: ui-monospace, monospace;
+  word-break: break-all;
+  margin: 0 0 0.9rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.45rem 0.95rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-raised);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: transparent;
+}
+
+.row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+input[type='text'],
+input[type='file'] {
+  font: inherit;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-raised);
+  color: var(--text);
+  margin-bottom: 0.85rem;
+}
+
+.error {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.88rem;
+  margin-bottom: 1rem;
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.warn {
+  font-size: 0.8rem;
+  color: var(--muted);
+  border-left: 2px solid var(--border);
+  padding-left: 0.7rem;
+  margin-top: 1.25rem;
+}
+
+.empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 2.5rem 0;
+}

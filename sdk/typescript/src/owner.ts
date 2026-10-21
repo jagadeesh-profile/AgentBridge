@@ -64,7 +64,11 @@ export class OwnerClient {
   private readonly now: () => Date;
 
   constructor(private readonly opts: OwnerClientOptions) {
-    this.fetchImpl = opts.fetch ?? fetch;
+    // Bound: stored on the instance and called as `this.fetchImpl(...)`, the
+    // global would arrive with `this` set to this object, which a browser
+    // rejects outright ("Illegal invocation"). Node does not care, so nothing
+    // but a real page catches it.
+    this.fetchImpl = opts.fetch ?? fetch.bind(globalThis);
     this.timeoutMs = opts.timeoutMs ?? 10_000;
     this.now = opts.now ?? (() => new Date());
   }

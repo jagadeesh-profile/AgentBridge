@@ -47,7 +47,10 @@ export class Client {
   private readonly now: () => Date;
 
   constructor(private readonly opts: ClientOptions) {
-    this.fetchImpl = opts.fetch ?? fetch;
+    // Bound for the same reason as OwnerClient: an unbound global called as
+    // `this.fetchImpl(...)` fails in a browser, and this client is usable
+    // from one even though Phase 0 only runs it in Node.
+    this.fetchImpl = opts.fetch ?? fetch.bind(globalThis);
     this.timeoutMs = opts.timeoutMs ?? 10_000;
     this.maxRetries = opts.maxRetries ?? 3;
     this.now = opts.now ?? (() => new Date());

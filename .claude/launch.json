@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "console",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@agentbridge/console", "run", "dev"],
+      "port": 3000,
+      "autoPort": true
+    }
+  ]
+}

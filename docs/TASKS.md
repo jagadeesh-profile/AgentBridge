@@ -19,7 +19,8 @@ see "Verification debt".
 
 | Command | Result |
 |---|---|
-| `make check` — lint, `tsc --strict`, unit, contract-drift | **387 tests** |
+| `pnpm --filter @agentbridge/console run build` | **compiles** |
+| `make check` — lint, `tsc --strict`, unit, contract-drift | **450 tests** |
 | `make test-e2e` — real hub, SQLite on disk, delivery worker | **24 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests** |
 | `make conformance` — MCP tool surface | **8 tests** |
@@ -84,10 +85,16 @@ see "Verification debt".
 | Owner-key-signed registration | ✅ ADR 0005; replaces the shared token, contract 0.3.0 (breaking) |
 | `agent.register` audited against the owner, not the new agent | ✅ ADR 0005 follow-up |
 | Clock drift named in the refusal instead of a bare `unauthenticated` | ✅ ADR 0005 follow-up; the only disclosed `unauthenticated` detail |
+| Owner-authenticated routes (`authenticateOwner`, `ownerRequestDescriptor`) | ✅ ADR 0006; contract 0.4.0 (breaking) |
+| `GET /v1/tasks?state=` — the approval queue | ✅ owner-only; migration 002 adds the index |
+| `contracts` isomorphic (`@noble/hashes`, not `node:crypto`) | ✅ so the console can hash in the browser |
+| `OwnerClient` + `agentbridge pending`; `approve` drops `--agent`/`--agent-key` | ✅ one key for the owner |
+| **Console — approvals view** | ✅ Next.js; key in-browser only; driven in a real browser against a real hub |
+| Console — task board, audit viewer, kill switch | ⬜ next console pass |
 
 ## What TDD caught that the plan got wrong
 
-Sixteen defects, each fixed with a test that failed first. Recorded because the
+Seventeen defects, each fixed with a test that failed first. Recorded because the
 plan was written by the same party that executed it, and this is the evidence
 that writing tests first did independent work:
 
@@ -109,6 +116,7 @@ that writing tests first did independent work:
 | Unauthenticated `POST /v1/agents` | Anyone reachable could enrol an agent into the owner's workspace (ADR 0004) |
 | OTel processors took a bare exporter | sdk-trace 3.0 wants `{ exporter }`; a positional exporter is accepted, never stored, and dies later on `undefined.forceFlush` |
 | Request span tied to a socket `close` event | Never fired under `inject`, so no span was ever emitted; `onResponse` is the correct hook |
+| `fetch` stored unbound on the SDK clients | `this.fetchImpl(...)` passes the client as `this`, which Node tolerates and a browser rejects with "Illegal invocation". Only running the console in a real browser surfaced it |
 
 ## Verification debt
 

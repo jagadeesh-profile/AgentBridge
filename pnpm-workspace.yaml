@@ -5,6 +5,7 @@ packages:
   - sdk/typescript
   - adapters/*
   - cli
+  - console
   - examples/*
   - tests
 minimumReleaseAgeExclude:
