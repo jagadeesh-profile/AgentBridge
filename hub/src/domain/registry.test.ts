@@ -34,6 +34,26 @@ describe('registerAgent', () => {
     expect(deps.store.listAudit('ws', 0, 10).map((r) => r.action)).toContain('agent.register');
   });
 
+  it('credits the OWNER as the actor, not the agent that was just created', () => {
+    const deps = makeFakes();
+    registerAgent(deps, 'ws', req);
+    const row = deps.store.listAudit('ws', 0, 10).find((r) => r.action === 'agent.register');
+    // The owner's signature authorised this (ADR 0005), so the owner is who
+    // acted. Recording the new agent as its own actor reads as if it enrolled
+    // itself, which is exactly the thing the signature rules out.
+    expect(row?.actor).toBe('owner');
+    expect(row?.subject).toBe('agent:muse');
+  });
+
+  it('keeps the owner actor OUT of the agent: namespace so it cannot be impersonated', () => {
+    const deps = makeFakes();
+    registerAgent(deps, 'ws', req);
+    const row = deps.store.listAudit('ws', 0, 10).find((r) => r.action === 'agent.register');
+    // Every registrable ref is `agent:<name>`. An owner actor inside that
+    // namespace would be registrable, therefore forgeable in the audit log.
+    expect(row?.actor.startsWith('agent:')).toBe(false);
+  });
+
   it('rejects a duplicate agent name as a CONFLICT, not a schema error', () => {
     const deps = makeFakes();
     registerAgent(deps, 'ws', req);

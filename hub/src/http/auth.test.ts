@@ -108,6 +108,25 @@ describe('authenticate', () => {
     });
   });
 
+  // A refused signature sends the operator looking at their key. Clock drift is
+  // the far more common cause, and the message is the only place that can say so.
+  it('NAMES the drift and its direction when the sender is behind', async () => {
+    const ts = new Date(deps.clock.now().getTime() - 420_000).toISOString();
+    await expect(authenticate(deps, await signedRequest({ timestamp: ts }))).rejects.toMatchObject({
+      code: 'unauthenticated',
+      // publicDetail, not message: the catalog message is the generic one, and
+      // publicDetail is the field the error handler actually sends to the client.
+      publicDetail: expect.stringMatching(/420s behind .*clock/i),
+    });
+  });
+
+  it('says AHEAD when the sender is in the future, not the same message both ways', async () => {
+    const ts = new Date(deps.clock.now().getTime() + 420_000).toISOString();
+    await expect(authenticate(deps, await signedRequest({ timestamp: ts }))).rejects.toMatchObject({
+      publicDetail: expect.stringMatching(/420s ahead of/i),
+    });
+  });
+
   it('ACCEPTS a request timestamped 299 s in the future, for modest clock skew', async () => {
     const ts = new Date(deps.clock.now().getTime() + 299_000).toISOString();
     await expect(authenticate(deps, await signedRequest({ timestamp: ts }))).resolves.toMatchObject(

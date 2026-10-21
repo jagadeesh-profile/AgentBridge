@@ -1,5 +1,10 @@
 import * as ed from '@noble/ed25519';
-import { registrationDescriptor, requestDescriptor, signDescriptor } from '@agentbridge/contracts';
+import {
+  ERROR_CATALOG,
+  registrationDescriptor,
+  requestDescriptor,
+  signDescriptor,
+} from '@agentbridge/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { makeFakes, type Fakes } from '../ports/fakes/index.js';
@@ -487,6 +492,36 @@ describe('registration is owner-signed', () => {
     const stale = new Date(deps.clock.now().getTime() - 301_000).toISOString();
     const res = await app.inject(await registration({ issuedAt: stale }));
     expect(res.statusCode).toBe(401);
+  });
+
+  it('BLAMES the clock, not the key, when registration is refused for drift', async () => {
+    // ADR 0005 noted this: owner signing made registration sensitive to skew,
+    // and a bare `unauthenticated` sends the operator to re-check their key.
+    const stale = new Date(deps.clock.now().getTime() - 600_000).toISOString();
+    const res = await app.inject(await registration({ issuedAt: stale }));
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.message).toMatch(/600s behind .*clock/i);
+  });
+
+  it('still WITHHOLDS every other rejection reason from the client', async () => {
+    // Opting one message in must not opt the rest in. "already used" versus
+    // "signature rejected" would tell an attacker whether they are replaying
+    // or forging; both must read as the same generic refusal.
+    const req = await registration({ name: 'twice' });
+    expect((await app.inject(req)).statusCode).toBe(201);
+    const replayed = (await app.inject(req)).json().error.message;
+    const forged = (
+      await app.inject(
+        await registration({ name: 'forged', signWith: ed.utils.randomPrivateKey() }),
+      )
+    ).json().error.message;
+
+    expect(replayed).toBe(forged);
+    // The shared generic refusal, not either specific reason. (It mentions the
+    // replay *window* — that is the catalog wording, not a disclosure that
+    // this particular request was a replay.)
+    expect(replayed).toBe(ERROR_CATALOG.unauthenticated.message);
+    expect(replayed).not.toMatch(/already|rejected|clock/i);
   });
 
   it('REJECTS a replayed registration, even one that previously succeeded', async () => {

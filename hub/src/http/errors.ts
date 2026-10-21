@@ -55,7 +55,9 @@ export function registerErrorHandler(app: FastifyInstance): void {
 
       if (err instanceof AgentBridgeError) {
         req.log.warn({ code: err.code, trace_id: traceId, detail: err.detail }, 'request rejected');
-        void reply.status(err.status).send(body(err.code, traceId, err.message));
+        void reply
+          .status(err.status)
+          .send(body(err.code, traceId, err.publicDetail ?? err.message));
         return;
       }
 

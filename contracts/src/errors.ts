@@ -47,6 +47,15 @@ export class AgentBridgeError extends Error {
   constructor(
     readonly code: ErrorCode,
     readonly detail?: string,
+    /**
+     * Replaces the catalog message in the response body. Opt-in per throw, and
+     * only for detail safe to disclose to an UNAUTHENTICATED caller — it must
+     * reveal nothing they did not already supply or could not already observe.
+     * `detail` is log-only precisely because most of it fails that test:
+     * "already used" versus "signature rejected" tells an attacker whether
+     * they are replaying or forging.
+     */
+    readonly publicDetail?: string,
   ) {
     super(ERROR_CATALOG[code].message);
     this.name = 'AgentBridgeError';

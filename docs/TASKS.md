@@ -82,6 +82,8 @@ see "Verification debt".
 | OpenTelemetry exporter | ✅ OTLP/HTTP; verified against a live collector receiving spans in the caller's trace |
 | `withIdempotency` durable reservation | ⬜ Phase 1, once delivery splits into its own process |
 | Owner-key-signed registration | ✅ ADR 0005; replaces the shared token, contract 0.3.0 (breaking) |
+| `agent.register` audited against the owner, not the new agent | ✅ ADR 0005 follow-up |
+| Clock drift named in the refusal instead of a bare `unauthenticated` | ✅ ADR 0005 follow-up; the only disclosed `unauthenticated` detail |
 
 ## What TDD caught that the plan got wrong
 

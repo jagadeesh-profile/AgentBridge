@@ -98,10 +98,18 @@ Four properties were chosen deliberately:
   Phase 0 both live with the CLI, so this is free; when the console takes over
   approvals it must also take over enrolment, or the key ends up in two places.
 - Clock skew now affects registration too: a signature more than 300 s out is
-  rejected, and the symptom (`unauthenticated`) does not say "check your clock".
-- The audit row still records `agent.register` against the new agent's ref. The
-  hub now *knows* the owner authorised it, so recording that is a small
-  follow-up rather than an open question.
+  rejected. *Resolved* — `assertFreshTimestamp` names the drift and its
+  direction, and that one message is opted in to the response body via
+  `AgentBridgeError.publicDetail`. It is the only `unauthenticated` detail that
+  is disclosed: it reveals nothing beyond the caller's own timestamp and a
+  server clock the HTTP `Date` header already carries, whereas "already used"
+  versus "signature rejected" would tell an attacker whether they are replaying
+  or forging. A test asserts those two remain byte-identical.
+- The audit row recorded `agent.register` against the new agent's own ref.
+  *Resolved* — the actor is now the literal `owner`, matching
+  `approval.decision` and `task.cancel`. It is deliberately outside the
+  `agent:` namespace: every registrable ref is `agent:<name>`, so an owner
+  actor inside it would be registrable and therefore forgeable in the log.
 
 ## Alternatives considered
 

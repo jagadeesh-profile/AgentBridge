@@ -24,7 +24,7 @@ import { cancelTaskAsOwner, createTask, updateTask } from '../domain/tasks.js';
 import { postMessage } from '../domain/threads.js';
 import { ackInbox, listInbox } from '../domain/inbox.js';
 import type { AgentRecord, BlobStore, Clock, IdGen, Store } from '../ports/index.js';
-import { REPLAY_WINDOW_MS, authenticate } from './auth.js';
+import { REPLAY_WINDOW_MS, assertFreshTimestamp, authenticate } from './auth.js';
 import { assertDepth, registerErrorHandler } from './errors.js';
 import { withIdempotency } from './idempotency.js';
 import { loggerOptions } from './logger.js';
@@ -184,13 +184,7 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
       throw new AgentBridgeError('unauthenticated', 'registration timestamp required');
     }
 
-    const parsedAt = Date.parse(timestamp);
-    if (Number.isNaN(parsedAt)) {
-      throw new AgentBridgeError('unauthenticated', 'unparseable registration timestamp');
-    }
-    if (Math.abs(deps.clock.now().getTime() - parsedAt) > REPLAY_WINDOW_MS) {
-      throw new AgentBridgeError('unauthenticated', 'registration outside the replay window');
-    }
+    assertFreshTimestamp(deps.clock.now(), timestamp, 'registration timestamp');
 
     // Replay check before anything else succeeds: re-submitting a past
     // enrolment must fail as a replay, not as a name conflict.

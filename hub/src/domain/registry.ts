@@ -46,7 +46,12 @@ export function registerAgent(
     };
 
     deps.store.putAgent(agent);
-    appendAudit(deps, workspace, 'agent.register', ref, ref);
+    // The owner's signature over the enrolment is what authorised this (ADR
+    // 0005), so the owner is the actor and the new agent is the subject. The
+    // literal `owner` is deliberately outside the `agent:` namespace: every
+    // registrable ref is `agent:<name>`, so an owner actor inside it would be
+    // registrable and therefore forgeable in the audit log.
+    appendAudit(deps, workspace, 'agent.register', 'owner', ref);
     return agent;
   });
 }

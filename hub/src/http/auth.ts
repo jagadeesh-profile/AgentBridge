@@ -9,6 +9,36 @@ import type { AgentRecord, Deps } from '../ports/index.js';
 /** ±300 s, per the Global Constraints and spec §5.1. */
 export const REPLAY_WINDOW_MS = 300_000;
 
+/**
+ * Rejects a timestamp outside the replay window, naming the drift.
+ *
+ * A refused signature sends the operator to re-check their key; clock drift is
+ * the more common cause and the message is the only place that can say so.
+ * Owner-signed registration (ADR 0005) made this reachable at enrolment too,
+ * where the operator has no server logs to read. Safe to disclose: the drift
+ * is the caller's own timestamp against a server clock the HTTP `Date` header
+ * already reveals.
+ */
+export function assertFreshTimestamp(now: Date, timestamp: string, what: string): void {
+  const parsed = Date.parse(timestamp);
+  if (Number.isNaN(parsed)) {
+    // NOT `Math.abs(now - NaN) > WINDOW`, which is false — an unparseable
+    // timestamp would sail through.
+    throw new AgentBridgeError('unauthenticated', `unparseable ${what}`);
+  }
+  // `>` not `>=`: 299 s is accepted, 301 s is not. Both directions are checked;
+  // a future-dated timestamp is skew too, not an attack.
+  const drift = now.getTime() - parsed;
+  if (Math.abs(drift) > REPLAY_WINDOW_MS) {
+    const seconds = Math.round(Math.abs(drift) / 1000);
+    const direction = drift > 0 ? 'behind' : 'ahead of';
+    const message =
+      `The ${what} is ${seconds}s ${direction} the hub clock ` +
+      `(limit ${REPLAY_WINDOW_MS / 1000}s). Check the client clock.`;
+    throw new AgentBridgeError('unauthenticated', message, message);
+  }
+}
+
 export interface RawRequest {
   method: string;
   path: string;
@@ -35,16 +65,7 @@ export async function authenticate(
     throw new AgentBridgeError('unauthenticated', 'missing auth headers');
   }
 
-  const parsed = Date.parse(timestamp);
-  if (Number.isNaN(parsed)) {
-    throw new AgentBridgeError('unauthenticated', 'unparseable timestamp');
-  }
-  // `>` not `>=`: 299 s is accepted, 301 s is not. Math.abs covers a
-  // future-dated timestamp from a skewed sender.
-  const skew = Math.abs(deps.clock.now().getTime() - parsed);
-  if (skew > REPLAY_WINDOW_MS) {
-    throw new AgentBridgeError('unauthenticated', 'timestamp outside the replay window');
-  }
+  assertFreshTimestamp(deps.clock.now(), timestamp, 'request timestamp');
 
   // The nonce is a hash of the SIGNATURE, not the timestamp. Keying on the
   // timestamp would reject two distinct requests made in the same clock tick —
