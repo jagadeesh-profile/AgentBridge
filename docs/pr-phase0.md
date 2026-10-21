@@ -23,7 +23,7 @@ make test-container   # builds and drives the real image
 
 | Gate | Result |
 |---|---|
-| `make check` — lint, `tsc --strict`, unit tests, contract-drift | **336 tests** |
+| `make check` — lint, `tsc --strict`, unit tests, contract-drift | **359 tests** |
 | `make test-e2e` — real hub: SQLite on disk, delivery worker, real ports | **24 tests** |
 | `make conformance` — MCP tool surface | **8 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests** |
@@ -81,6 +81,11 @@ test that failed first. The ones worth a reviewer's attention:
 
 - Idempotency was not exactly-once — both concurrent callers ran the body and
   only the second *response* was discarded, after its rows were written.
+- `listInbox` derived its cursor from the last item it built rather than the
+  last row the store returned. A skipped row at the end of a page left the
+  cursor behind it, and a page of only skipped rows returned `cursor: null` —
+  which the SDK reads as "nothing new". One orphaned row would have wedged an
+  agent's inbox permanently. Found by writing the module's first unit tests.
 - The replay nonce was keyed on the timestamp, so two different requests in one
   millisecond collided; replay rejection then had to be scoped to unsafe unkeyed
   writes so it would not break the safe retry §1.4 promises.
@@ -117,11 +122,6 @@ out of `make check` and out of CI — a build-plus-boot is minutes, not seconds.
 - OpenTelemetry **exporter** is not wired. `trace_id` propagation is — it is
   adopted from the caller and carried in the envelope so one trace spans both
   agents — but spans are not exported.
-- Duplicate agent registration returns `schema_invalid` (400) rather than a
-  conflict code; adding `already_exists` is a contract change and belongs to
-  `architect`.
-- `hub/src/domain/inbox.ts` has no dedicated unit tests (covered via the HTTP
-  and e2e suites).
 - `docs/TASKS.md` and the two ADRs named in the plan's post-plan section are not
   written.
 
