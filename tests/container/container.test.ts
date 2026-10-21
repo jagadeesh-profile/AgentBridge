@@ -93,8 +93,8 @@ describe('the container boots and serves', () => {
   });
 });
 
-describe('registration is gated in the real deployment', () => {
-  it('rejects a registration with no token', async () => {
+describe('registration is owner-signed in the real deployment', () => {
+  it('rejects a registration with no owner signature', async () => {
     needsDocker();
     const res = await fetch(`${h.baseUrl}/v1/agents`, {
       method: 'POST',
@@ -108,19 +108,34 @@ describe('registration is gated in the real deployment', () => {
     expect(res.status).toBe(401);
   });
 
-  it('rejects a registration with a wrong token', async () => {
+  it('rejects a registration signed by a key that is not the owner key', async () => {
     needsDocker();
+    const impostor = ed.utils.randomPrivateKey();
+    const issuedAt = new Date().toISOString();
+    const { registrationDescriptor, signDescriptor } = await import('@agentbridge/contracts');
+    const sig = await signDescriptor(
+      registrationDescriptor({
+        workspace: WORKSPACE,
+        name: 'intruder',
+        publicKey: 'AAAA',
+        scopes: ['read', 'message'],
+        issuedAt,
+      }),
+      impostor,
+    );
     const res = await fetch(`${h.baseUrl}/v1/agents`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         'x-agentbridge-workspace': WORKSPACE,
-        'x-agentbridge-registration-token': 'x'.repeat(64),
+        'x-agentbridge-timestamp': issuedAt,
+        'x-agentbridge-owner-signature': sig,
       },
       body: JSON.stringify({
         name: 'intruder',
         capabilities: { skills: [], input: [], output: [] },
         public_key: 'AAAA',
+        scopes: ['read', 'message'],
       }),
     });
     expect(res.status).toBe(401);

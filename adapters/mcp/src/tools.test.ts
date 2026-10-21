@@ -109,7 +109,6 @@ describe('tools against a real hub', () => {
         ...deps,
         clock: { now: () => new Date() },
         ownerPublicKey: new Uint8Array(32),
-        registrationToken: 'test-registration-token',
       },
       { logger: false, rateLimitMax: 5000 },
     );

@@ -19,7 +19,7 @@ see "Verification debt".
 
 | Command | Result |
 |---|---|
-| `make check` — lint, `tsc --strict`, unit, contract-drift | **374 tests** |
+| `make check` — lint, `tsc --strict`, unit, contract-drift | **387 tests** |
 | `make test-e2e` — real hub, SQLite on disk, delivery worker | **24 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests** |
 | `make conformance` — MCP tool surface | **8 tests** |
@@ -77,15 +77,15 @@ see "Verification debt".
 | Container e2e suite against the real image | ✅ added (20 tests) |
 | `hub/src/domain/inbox.ts` unit tests | ✅ added (22 tests) — found a cursor liveness bug |
 | `already_exists` (409) for duplicate registration | ✅ contract bumped to 0.2.0 |
-| ADRs 0001–0004 | ✅ this commit |
+| ADRs 0001–0005 | ✅ written |
 | `docs/TASKS.md` | ✅ this file |
 | OpenTelemetry exporter | ✅ OTLP/HTTP; verified against a live collector receiving spans in the caller's trace |
 | `withIdempotency` durable reservation | ⬜ Phase 1, once delivery splits into its own process |
-| Owner-key-signed registration | ⬜ Phase 1, replaces the shared token (ADR 0004) |
+| Owner-key-signed registration | ✅ ADR 0005; replaces the shared token, contract 0.3.0 (breaking) |
 
 ## What TDD caught that the plan got wrong
 
-Fourteen defects, each fixed with a test that failed first. Recorded because the
+Sixteen defects, each fixed with a test that failed first. Recorded because the
 plan was written by the same party that executed it, and this is the evidence
 that writing tests first did independent work:
 

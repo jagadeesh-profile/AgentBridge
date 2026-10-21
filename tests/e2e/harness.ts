@@ -48,7 +48,6 @@ export async function startHarness(workspace = 'ws_e2e'): Promise<Harness> {
       ids,
       blob,
       ownerPublicKey: ownerPub,
-      registrationToken: 'test-registration-token',
     },
     { logger: false, rateLimitMax: 5000 },
   );

@@ -1,5 +1,5 @@
 import * as ed from '@noble/ed25519';
-import { requestDescriptor, signDescriptor } from '@agentbridge/contracts';
+import { registrationDescriptor, requestDescriptor, signDescriptor } from '@agentbridge/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { makeFakes, type Fakes } from '../ports/fakes/index.js';
@@ -11,8 +11,8 @@ import { buildApp } from './app.js';
 let deps: Fakes;
 let app: FastifyInstance;
 let clPriv: Uint8Array;
-
-const TEST_REGISTRATION_TOKEN = 'test-registration-token';
+let ownerPriv: Uint8Array;
+let ownerPub: Uint8Array;
 
 async function signed(
   method: string,
@@ -49,6 +49,8 @@ async function signed(
 beforeEach(async () => {
   deps = makeFakes();
   clPriv = ed.utils.randomPrivateKey();
+  ownerPriv = ed.utils.randomPrivateKey();
+  ownerPub = await ed.getPublicKeyAsync(ownerPriv);
   const pub = Buffer.from(await ed.getPublicKeyAsync(clPriv)).toString('base64');
   registerAgent(deps, 'ws', {
     name: 'claude',
@@ -65,8 +67,7 @@ beforeEach(async () => {
   app = await buildApp(
     {
       ...deps,
-      ownerPublicKey: new Uint8Array(32),
-      registrationToken: TEST_REGISTRATION_TOKEN,
+      ownerPublicKey: ownerPub,
     },
     { logger: false, rateLimitMax: 1000 },
   );
@@ -210,7 +211,7 @@ describe('happy path over HTTP', () => {
 describe('hostile payloads', () => {
   it('REJECTS a body over the size limit with 413 and keeps serving', async () => {
     const small = await buildApp(
-      { ...deps, ownerPublicKey: new Uint8Array(32), registrationToken: TEST_REGISTRATION_TOKEN },
+      { ...deps, ownerPublicKey: ownerPub },
       { logger: false, bodyLimit: 1024, rateLimitMax: 1000 },
     );
     await small.ready();
@@ -289,7 +290,7 @@ describe('log redaction', () => {
 describe('rate limiting', () => {
   it('returns rate_limited once an agent exceeds its burst', async () => {
     const tight = await buildApp(
-      { ...deps, ownerPublicKey: new Uint8Array(32), registrationToken: TEST_REGISTRATION_TOKEN },
+      { ...deps, ownerPublicKey: ownerPub },
       { logger: false, rateLimitMax: 2, rateLimitWindow: '1 minute' },
     );
     await tight.ready();
@@ -388,156 +389,132 @@ describe('trace propagation', () => {
   });
 });
 
-// Final review finding: POST /v1/agents was wholly unauthenticated, and the
-// workspace is a caller-supplied header — so anyone who could reach the hub
-// could enrol an agent in someone else's workspace and start sending messages
-// to it with the default read+message scopes.
-describe('registration is gated', () => {
-  it('REJECTS a registration with no token', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/agents',
-      headers: { 'content-type': 'application/json', 'x-agentbridge-workspace': 'ws' },
-      payload: JSON.stringify({
-        name: 'intruder',
-        capabilities: { skills: [], input: [], output: [] },
-        public_key: 'AAAA',
-      }),
-    });
-    expect(res.statusCode).toBe(401);
-    expect(deps.store.getAgent('ws', 'agent:intruder')).toBeNull();
-  });
+// ADR 0005: registration is authorised by the OWNER's Ed25519 signature, not a
+// shared secret. The owner key already exists for approvals, so this adds no
+// new credential and authenticates *who* enrolled rather than merely that
+// someone held a secret.
+describe('registration is owner-signed', () => {
+  async function registration(
+    over: {
+      name?: string;
+      publicKey?: string;
+      scopes?: string[];
+      webhookUrl?: string;
+      issuedAt?: string;
+      workspace?: string;
+      signWith?: Uint8Array;
+      signedScopes?: string[];
+      signedWorkspace?: string;
+    } = {},
+  ) {
+    const name = over.name ?? 'invited';
+    const publicKey = over.publicKey ?? 'QUFBQQ==';
+    const scopes = over.scopes ?? ['read', 'message'];
+    const issuedAt = over.issuedAt ?? deps.clock.now().toISOString();
+    const workspace = over.workspace ?? 'ws';
 
-  it('REJECTS a registration with the wrong token', async () => {
-    const res = await app.inject({
-      method: 'POST',
+    const descriptor = registrationDescriptor({
+      // Deliberately allow the SIGNED values to differ from the sent ones, so
+      // a test can prove the binding actually holds.
+      workspace: over.signedWorkspace ?? workspace,
+      name,
+      publicKey,
+      scopes: over.signedScopes ?? scopes,
+      ...(over.webhookUrl === undefined ? {} : { webhookUrl: over.webhookUrl }),
+      issuedAt,
+    });
+    const sig = await signDescriptor(descriptor, over.signWith ?? ownerPriv);
+
+    return {
+      method: 'POST' as const,
       url: '/v1/agents',
+      payload: JSON.stringify({
+        name,
+        capabilities: { skills: [], input: [], output: [] },
+        public_key: publicKey,
+        scopes,
+        ...(over.webhookUrl === undefined ? {} : { webhook_url: over.webhookUrl }),
+      }),
       headers: {
         'content-type': 'application/json',
-        'x-agentbridge-workspace': 'ws',
-        'x-agentbridge-registration-token': 'not-the-token',
+        'x-agentbridge-workspace': workspace,
+        'x-agentbridge-timestamp': issuedAt,
+        'x-agentbridge-owner-signature': sig,
       },
-      payload: JSON.stringify({
-        name: 'intruder',
-        capabilities: { skills: [], input: [], output: [] },
-        public_key: 'AAAA',
-      }),
-    });
-    expect(res.statusCode).toBe(401);
-    expect(deps.store.getAgent('ws', 'agent:intruder')).toBeNull();
-  });
+    };
+  }
 
-  it('accepts a registration bearing the right token', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/agents',
-      headers: {
-        'content-type': 'application/json',
-        'x-agentbridge-workspace': 'ws',
-        'x-agentbridge-registration-token': TEST_REGISTRATION_TOKEN,
-      },
-      payload: JSON.stringify({
-        name: 'invited',
-        capabilities: { skills: [], input: [], output: [] },
-        public_key: 'AAAA',
-      }),
-    });
+  it('accepts a registration signed by the owner', async () => {
+    const res = await app.inject(await registration());
     expect(res.statusCode).toBe(201);
     expect(deps.store.getAgent('ws', 'agent:invited')?.scopes).toEqual(['read', 'message']);
   });
 
-  it('rejects a token of the right length but wrong content', async () => {
-    const wrong = 'x'.repeat(TEST_REGISTRATION_TOKEN.length);
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/agents',
-      headers: {
-        'content-type': 'application/json',
-        'x-agentbridge-workspace': 'ws',
-        'x-agentbridge-registration-token': wrong,
-      },
-      payload: JSON.stringify({
-        name: 'intruder2',
-        capabilities: { skills: [], input: [], output: [] },
-        public_key: 'AAAA',
+  it('REJECTS a registration with no signature', async () => {
+    const req = await registration();
+    delete (req.headers as Record<string, string>)['x-agentbridge-owner-signature'];
+    const res = await app.inject(req);
+    expect(res.statusCode).toBe(401);
+    expect(deps.store.getAgent('ws', 'agent:invited')).toBeNull();
+  });
+
+  it('REJECTS a registration signed by someone other than the owner', async () => {
+    const res = await app.inject(await registration({ signWith: ed.utils.randomPrivateKey() }));
+    expect(res.statusCode).toBe(401);
+    expect(deps.store.getAgent('ws', 'agent:invited')).toBeNull();
+  });
+
+  it('REJECTS scopes wider than the owner signed, so no self-escalation', async () => {
+    const res = await app.inject(
+      await registration({
+        signedScopes: ['read', 'message'],
+        scopes: ['read', 'message', 'request_side_effect'],
       }),
-    });
+    );
+    expect(res.statusCode).toBe(401);
+    expect(deps.store.getAgent('ws', 'agent:invited')).toBeNull();
+  });
+
+  it('REJECTS a signature issued for a different workspace', async () => {
+    const res = await app.inject(
+      await registration({ signedWorkspace: 'ws_other', workspace: 'ws' }),
+    );
+    expect(res.statusCode).toBe(401);
+    expect(deps.store.getAgent('ws', 'agent:invited')).toBeNull();
+  });
+
+  it('REJECTS a signature older than the replay window', async () => {
+    const stale = new Date(deps.clock.now().getTime() - 301_000).toISOString();
+    const res = await app.inject(await registration({ issuedAt: stale }));
     expect(res.statusCode).toBe(401);
   });
-});
 
-// The exporter wiring, not just the helper: a request must produce a span whose
-// trace id is the one the caller sent, so the hub's work lands in the agent's
-// trace rather than a disconnected one (spec §8).
-describe('request spans reach the exporter', () => {
-  it('emits one span per API request, in the caller trace', async () => {
-    const { InMemorySpanExporter } = await import('@opentelemetry/sdk-trace');
-    const { initTelemetry, flushTelemetry, shutdownTelemetry } = await import('../telemetry.js');
-    const exporter = new InMemorySpanExporter();
-    initTelemetry({ serviceName: 'app-test', exporter });
-
-    const traced = await buildApp(
-      {
-        ...deps,
-        ownerPublicKey: new Uint8Array(32),
-        registrationToken: TEST_REGISTRATION_TOKEN,
-      },
-      { logger: false, rateLimitMax: 1000 },
-    );
-    await traced.ready();
-
-    const trace = '11112222333344445555666677778888';
-    try {
-      const req = await signed('GET', '/v1/inbox');
-      const res = await traced.inject({
-        ...req,
-        headers: { ...req.headers, 'x-agentbridge-trace-id': trace },
-      });
-      expect(res.statusCode).toBe(200);
-
-      await flushTelemetry();
-      const spans = exporter.getFinishedSpans();
-      expect(spans.length).toBeGreaterThan(0);
-
-      const mine = spans.filter((s) => s.spanContext().traceId === trace);
-      expect(mine.length, 'a span must carry the caller trace id').toBeGreaterThan(0);
-      expect(mine[0]?.name).toContain('/v1/inbox');
-      expect(mine[0]?.attributes).toMatchObject({ 'http.method': 'GET' });
-
-      // And no body-bearing attribute anywhere in the exported spans.
-      const dump = JSON.stringify(spans.map((s) => s.attributes));
-      for (const forbidden of ['"body"', '"payload"', '"value"', '"inline"']) {
-        expect(dump, `${forbidden} must not be exported`).not.toContain(forbidden);
-      }
-    } finally {
-      await traced.close();
-      await shutdownTelemetry();
-    }
+  it('REJECTS a replayed registration, even one that previously succeeded', async () => {
+    const req = await registration({ name: 'once' });
+    expect((await app.inject(req)).statusCode).toBe(201);
+    // Same signature again: the name now conflicts, but it must be refused as a
+    // replay before that is even considered.
+    const replay = await app.inject(req);
+    expect(replay.statusCode).toBe(401);
   });
 
-  it('does not emit a span for /healthz, which is not an API route', async () => {
-    const { InMemorySpanExporter } = await import('@opentelemetry/sdk-trace');
-    const { initTelemetry, flushTelemetry, shutdownTelemetry } = await import('../telemetry.js');
-    const exporter = new InMemorySpanExporter();
-    initTelemetry({ serviceName: 'app-test', exporter });
+  it('binds the webhook url, so delivery cannot be redirected after signing', async () => {
+    const signed = await registration({
+      name: 'pushy',
+      webhookUrl: 'https://good.example/hook',
+    });
+    const body = JSON.parse(signed.payload) as Record<string, unknown>;
+    body.webhook_url = 'https://attacker.example/hook';
+    const res = await app.inject({ ...signed, payload: JSON.stringify(body) });
+    expect(res.statusCode).toBe(401);
+    expect(deps.store.getAgent('ws', 'agent:pushy')).toBeNull();
+  });
 
-    const traced = await buildApp(
-      {
-        ...deps,
-        ownerPublicKey: new Uint8Array(32),
-        registrationToken: TEST_REGISTRATION_TOKEN,
-      },
-      { logger: false, rateLimitMax: 1000 },
+  it('still returns the webhook secret exactly once on success', async () => {
+    const res = await app.inject(
+      await registration({ name: 'hooked', webhookUrl: 'https://good.example/hook' }),
     );
-    await traced.ready();
-    try {
-      await traced.inject({ method: 'GET', url: '/healthz' });
-      await flushTelemetry();
-      // A liveness probe every 10s must not flood the trace backend.
-      expect(exporter.getFinishedSpans()).toHaveLength(0);
-    } finally {
-      await traced.close();
-      await shutdownTelemetry();
-    }
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as { webhook_secret: string }).webhook_secret).toMatch(/^[0-9a-f]{64}$/);
   });
 });

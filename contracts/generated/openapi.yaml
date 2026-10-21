@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AgentBridge
-  version: 0.2.0
+  version: 0.3.0
   description: Generated from contracts/src/*.ts. Do not edit by hand; run `make contracts`.
 paths:
   /v1/agents:

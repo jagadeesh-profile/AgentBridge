@@ -1,6 +1,13 @@
 import { canonicalize, payloadHash } from '@agentbridge/contracts';
 import * as ed from '@noble/ed25519';
-import { Client, generateKeyPair, loadKey, publicKeyBase64, saveKey } from '@agentbridge/sdk';
+import {
+  Client,
+  generateKeyPair,
+  loadKey,
+  publicKeyBase64,
+  registerAgent as sdkRegisterAgent,
+  saveKey,
+} from '@agentbridge/sdk';
 
 export interface Env {
   baseUrl: string;
@@ -32,50 +39,37 @@ export async function register(
   opts: {
     name: string;
     key: string;
+    ownerKeyPath: string;
     scopes?: readonly string[] | undefined;
     webhookUrl?: string | undefined;
     skills?: readonly string[] | undefined;
-    registrationToken?: string | undefined;
   },
 ): Promise<{ ref: string; webhookSecret: string | null }> {
+  // The agent key file supplies only its PUBLIC half; enrolment is authorised
+  // by the OWNER's signature (ADR 0005), so the two keys do different jobs.
   const publicKey = publicKeyBase64(await ed.getPublicKeyAsync(await loadKey(opts.key)));
-  const doFetch = env.fetch ?? fetch;
 
-  const res = await doFetch(`${env.baseUrl}/v1/agents`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-agentbridge-workspace': env.workspace,
-      // Registration cannot be signature-authenticated: the agent has no
-      // registered key yet.
-      'x-agentbridge-registration-token':
-        opts.registrationToken ?? process.env.AGENTBRIDGE_REGISTRATION_TOKEN ?? '',
+  const out = await sdkRegisterAgent({
+    baseUrl: env.baseUrl,
+    workspace: env.workspace,
+    name: opts.name,
+    publicKey,
+    ownerPrivateKey: await loadKey(opts.ownerKeyPath),
+    ...(opts.scopes === undefined ? {} : { scopes: opts.scopes }),
+    ...(opts.webhookUrl === undefined ? {} : { webhookUrl: opts.webhookUrl }),
+    capabilities: {
+      skills: [...(opts.skills ?? [])],
+      input: ['text', 'json'],
+      output: ['text', 'json'],
     },
-    body: JSON.stringify({
-      name: opts.name,
-      capabilities: {
-        skills: opts.skills ?? [],
-        input: ['text', 'json'],
-        output: ['text', 'json'],
-      },
-      public_key: publicKey,
-      ...(opts.webhookUrl === undefined ? {} : { webhook_url: opts.webhookUrl }),
-      ...(opts.scopes === undefined ? {} : { scopes: opts.scopes }),
-    }),
+    ...(env.fetch === undefined ? {} : { fetch: env.fetch }),
   });
 
-  if (!res.ok) throw new Error(`register failed: ${res.status} ${await res.text()}`);
-  const body = (await res.json()) as {
-    ref: string;
-    scopes: string[];
-    webhook_secret: string | null;
-  };
-
-  env.write(`registered ${body.ref} with scopes ${body.scopes.join(', ')}`);
-  if (body.webhook_secret !== null) {
-    env.write(`webhook secret (shown once): ${body.webhook_secret}`);
+  env.write(`registered ${out.ref} with scopes ${out.scopes.join(', ')}`);
+  if (out.webhookSecret !== null) {
+    env.write(`webhook secret (shown once): ${out.webhookSecret}`);
   }
-  return { ref: body.ref, webhookSecret: body.webhook_secret };
+  return { ref: out.ref, webhookSecret: out.webhookSecret };
 }
 
 /* ----------------------------------------------------------------- approve */

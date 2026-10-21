@@ -61,6 +61,44 @@ export function requestDescriptor(r: {
   return [r.method.toUpperCase(), r.path, query, sha256Hex(r.body), r.timestamp].join('\n');
 }
 
+/**
+ * Canonical descriptor for an agent enrolment, signed by the OWNER key.
+ *
+ * Registration is the one operation that cannot be signature-authenticated as
+ * the agent, because the agent has no registered key yet. Instead the owner
+ * authorises it, and this descriptor is what they sign.
+ *
+ * Every field an attacker would want to vary is bound:
+ *   - `workspace`, so a signature captured for one workspace cannot enrol an
+ *     agent into another;
+ *   - `publicKey`, so the key cannot be swapped for the attacker's after the
+ *     owner signed;
+ *   - `scopes`, so the enrolling party cannot self-escalate;
+ *   - `webhookUrl`, so delivery cannot be redirected;
+ *   - `issuedAt`, so an old signature expires.
+ *
+ * Scopes are sorted, because the set is what was authorised — not the order it
+ * happened to arrive in. An absent webhook URL is distinct from an empty one.
+ */
+export function registrationDescriptor(r: {
+  workspace: string;
+  name: string;
+  publicKey: string;
+  scopes: readonly string[];
+  webhookUrl?: string | undefined;
+  issuedAt: string;
+}): string {
+  return [
+    'agentbridge-register-v1',
+    r.workspace,
+    r.name,
+    r.publicKey,
+    [...r.scopes].sort().join(','),
+    r.webhookUrl === undefined ? '-' : `url:${r.webhookUrl}`,
+    r.issuedAt,
+  ].join('\n');
+}
+
 export async function signDescriptor(descriptor: string, privateKey: Uint8Array): Promise<string> {
   const sig = await ed.signAsync(new TextEncoder().encode(descriptor), privateKey);
   return PREFIX + Buffer.from(sig).toString('base64');

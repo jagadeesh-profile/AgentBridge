@@ -24,7 +24,6 @@ architectural decision you have to make up front.
 agentbridge keygen --out owner.key          # prints the owner public key
 export AGENTBRIDGE_OWNER_PUBLIC_KEY=<that value>
 export AGENTBRIDGE_WORKSPACE=ws_pilot
-export AGENTBRIDGE_REGISTRATION_TOKEN=$(openssl rand -hex 32)   # gates enrolment
 pnpm run dev                                # hub on :8080, in Docker
 ```
 
@@ -33,8 +32,10 @@ In another shell:
 ```bash
 agentbridge keygen --out claude.key
 agentbridge keygen --out muse.key
-agentbridge register --name claude --key claude.key --scopes read,message,create_task,request_side_effect
-agentbridge register --name muse   --key muse.key   --scopes read,message,write_artifact
+agentbridge register --name claude --key claude.key --owner-key owner.key \
+  --scopes read,message,create_task,request_side_effect
+agentbridge register --name muse   --key muse.key   --owner-key owner.key \
+  --scopes read,message,write_artifact
 bash examples/claude-muse/scripts/pilot.sh
 ```
 

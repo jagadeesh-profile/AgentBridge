@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import rateLimit from '@fastify/rate-limit';
 import {
   AgentBridgeError,
@@ -10,6 +10,9 @@ import {
   RegisterAgentRequest,
   UpdateTaskRequest,
   payloadHash,
+  registrationDescriptor,
+  sha256Hex,
+  verifyDescriptor,
 } from '@agentbridge/contracts';
 import type { Span as OtelSpan } from '@opentelemetry/api';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
@@ -21,7 +24,7 @@ import { cancelTaskAsOwner, createTask, updateTask } from '../domain/tasks.js';
 import { postMessage } from '../domain/threads.js';
 import { ackInbox, listInbox } from '../domain/inbox.js';
 import type { AgentRecord, BlobStore, Clock, IdGen, Store } from '../ports/index.js';
-import { authenticate } from './auth.js';
+import { REPLAY_WINDOW_MS, authenticate } from './auth.js';
 import { assertDepth, registerErrorHandler } from './errors.js';
 import { withIdempotency } from './idempotency.js';
 import { loggerOptions } from './logger.js';
@@ -34,16 +37,6 @@ export interface AppDeps {
   blob: BlobStore;
   /** The owner's Ed25519 public key, base64. Approvals verify against it. */
   ownerPublicKey: Uint8Array;
-  /**
-   * Required bearer for POST /v1/agents.
-   *
-   * Registration cannot be signature-authenticated — the agent has no
-   * registered key yet — and the workspace arrives as a caller-supplied
-   * header. Without this gate anyone who can reach the hub could enrol an
-   * agent in someone else's workspace and immediately send messages to it with
-   * the default read+message scopes. Not optional: fail closed.
-   */
-  registrationToken: string;
 }
 
 export interface AppOptions {
@@ -149,7 +142,7 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
     if (!req.url.startsWith(AUTHENTICATED_PREFIX)) return;
     const path = req.url.split('?')[0] ?? req.url;
     if (OPEN_PATHS.has(path) && req.method === 'POST') {
-      requireRegistrationToken(req);
+      await requireOwnerRegistration(req);
       return;
     }
 
@@ -170,17 +163,61 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
     );
   });
 
-  /** Constant-time compare, length-checked first so a short token cannot throw. */
-  const requireRegistrationToken = (req: FastifyRequest): void => {
-    const presented = req.headers['x-agentbridge-registration-token'];
-    if (typeof presented !== 'string' || presented === '') {
-      throw new AgentBridgeError('unauthenticated', 'registration token required');
+  /**
+   * Registration is authorised by the OWNER's signature over exactly the
+   * enrolment being requested (ADR 0005).
+   *
+   * This is the one operation that cannot be authenticated as the agent — it
+   * has no registered key yet — so the owner signs instead. Because the
+   * descriptor binds workspace, name, public key, scopes and webhook URL, a
+   * captured signature cannot be retargeted: changing any of them invalidates
+   * it. The body is re-read here rather than trusted, so what is verified is
+   * what will be stored.
+   */
+  const requireOwnerRegistration = async (req: FastifyRequest): Promise<void> => {
+    const signature = req.headers['x-agentbridge-owner-signature'];
+    const timestamp = req.headers['x-agentbridge-timestamp'];
+    if (typeof signature !== 'string' || signature === '') {
+      throw new AgentBridgeError('unauthenticated', 'owner signature required to register');
     }
-    const a = Buffer.from(presented);
-    const b = Buffer.from(deps.registrationToken);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) {
-      throw new AgentBridgeError('unauthenticated', 'registration token rejected');
+    if (typeof timestamp !== 'string' || timestamp === '') {
+      throw new AgentBridgeError('unauthenticated', 'registration timestamp required');
     }
+
+    const parsedAt = Date.parse(timestamp);
+    if (Number.isNaN(parsedAt)) {
+      throw new AgentBridgeError('unauthenticated', 'unparseable registration timestamp');
+    }
+    if (Math.abs(deps.clock.now().getTime() - parsedAt) > REPLAY_WINDOW_MS) {
+      throw new AgentBridgeError('unauthenticated', 'registration outside the replay window');
+    }
+
+    // Replay check before anything else succeeds: re-submitting a past
+    // enrolment must fail as a replay, not as a name conflict.
+    const nonce = sha256Hex(signature);
+    if (deps.store.seenNonce('owner', nonce)) {
+      throw new AgentBridgeError('unauthenticated', 'registration already used');
+    }
+
+    const body = RegisterAgentRequest.parse(req.body);
+    const descriptor = registrationDescriptor({
+      workspace: workspaceOf(req),
+      name: body.name,
+      publicKey: body.public_key,
+      scopes: body.scopes,
+      ...(body.webhook_url === undefined ? {} : { webhookUrl: body.webhook_url }),
+      issuedAt: timestamp,
+    });
+
+    if (!(await verifyDescriptor(descriptor, signature, deps.ownerPublicKey))) {
+      throw new AgentBridgeError('unauthenticated', 'registration signature rejected');
+    }
+
+    deps.store.recordNonce(
+      'owner',
+      nonce,
+      new Date(deps.clock.now().getTime() + REPLAY_WINDOW_MS).toISOString(),
+    );
   };
 
   const requireAgent = (req: FastifyRequest): AgentRecord => {

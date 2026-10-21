@@ -2,6 +2,7 @@ import * as ed from '@noble/ed25519';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   payloadHash,
+  registrationDescriptor,
   requestDescriptor,
   signDescriptor,
   signEnvelope,
@@ -137,5 +138,79 @@ describe('request descriptors', () => {
     expect(await verifyDescriptor(requestDescriptor({ ...r, path: '/v1/tasks' }), sig, pub)).toBe(
       false,
     );
+  });
+});
+
+describe('registration descriptors', () => {
+  const base = {
+    workspace: 'ws_jagadeesh',
+    name: 'muse',
+    publicKey: 'QUFBQQ==',
+    scopes: ['read', 'message'],
+    issuedAt: '2026-10-20T20:50:46Z',
+  };
+
+  it('binds the workspace, so a signature cannot be replayed into another one', () => {
+    expect(registrationDescriptor(base)).not.toBe(
+      registrationDescriptor({ ...base, workspace: 'ws_victim' }),
+    );
+  });
+
+  it('binds the agent name', () => {
+    expect(registrationDescriptor(base)).not.toBe(
+      registrationDescriptor({ ...base, name: 'impostor' }),
+    );
+  });
+
+  it('binds the public key, so the key cannot be swapped after signing', () => {
+    expect(registrationDescriptor(base)).not.toBe(
+      registrationDescriptor({ ...base, publicKey: 'QkJCQg==' }),
+    );
+  });
+
+  it('binds the scopes, so an agent cannot self-escalate', () => {
+    expect(registrationDescriptor(base)).not.toBe(
+      registrationDescriptor({ ...base, scopes: ['read', 'message', 'request_side_effect'] }),
+    );
+  });
+
+  it('binds the webhook url, so delivery cannot be redirected', () => {
+    expect(registrationDescriptor(base)).not.toBe(
+      registrationDescriptor({ ...base, webhookUrl: 'https://attacker.example/hook' }),
+    );
+  });
+
+  it('binds the timestamp, so an old signature cannot be reused', () => {
+    expect(registrationDescriptor(base)).not.toBe(
+      registrationDescriptor({ ...base, issuedAt: '2026-10-21T20:50:46Z' }),
+    );
+  });
+
+  it('is stable regardless of scope order', () => {
+    expect(registrationDescriptor({ ...base, scopes: ['message', 'read'] })).toBe(
+      registrationDescriptor({ ...base, scopes: ['read', 'message'] }),
+    );
+  });
+
+  it('distinguishes an absent webhook url from an empty one', () => {
+    expect(registrationDescriptor(base)).not.toBe(
+      registrationDescriptor({ ...base, webhookUrl: '' }),
+    );
+  });
+
+  it('round-trips through sign and verify with the owner key', async () => {
+    const d = registrationDescriptor(base);
+    const sig = await signDescriptor(d, priv);
+    expect(await verifyDescriptor(d, sig, pub)).toBe(true);
+    expect(await verifyDescriptor(d, sig, other)).toBe(false);
+  });
+
+  it('fails verification when any bound field changed after signing', async () => {
+    const sig = await signDescriptor(registrationDescriptor(base), priv);
+    const tampered = registrationDescriptor({
+      ...base,
+      scopes: ['read', 'message', 'create_task'],
+    });
+    expect(await verifyDescriptor(tampered, sig, pub)).toBe(false);
   });
 });

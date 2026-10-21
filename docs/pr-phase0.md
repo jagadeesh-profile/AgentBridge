@@ -15,7 +15,6 @@ the task-by-task plan is in
 ```bash
 make setup
 export AGENTBRIDGE_OWNER_PUBLIC_KEY=$(... agentbridge keygen --out owner.key)
-export AGENTBRIDGE_REGISTRATION_TOKEN=$(openssl rand -hex 32)
 make dev            # hub in Docker on :8080
 make check && make test-e2e && make conformance
 make test-container   # builds and drives the real image
@@ -23,7 +22,7 @@ make test-container   # builds and drives the real image
 
 | Gate | Result |
 |---|---|
-| `make check` — lint, `tsc --strict`, unit tests, contract-drift | **359 tests** |
+| `make check` — lint, `tsc --strict`, unit tests, contract-drift | **387 tests** |
 | `make test-e2e` — real hub: SQLite on disk, delivery worker, real ports | **24 tests** |
 | `make conformance` — MCP tool surface | **8 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests** |
@@ -81,7 +80,7 @@ cannot diverge.
 
 ## Review notes
 
-Writing tests first caught **thirteen defects in the plan**, each fixed with a
+Writing tests first caught **sixteen defects in the plan**, each fixed with a
 test that failed first. The ones worth a reviewer's attention:
 
 - Idempotency was not exactly-once — both concurrent callers ran the body and
@@ -105,11 +104,18 @@ test that failed first. The ones worth a reviewer's attention:
 **A final review found and fixed one Important security hole:** `POST /v1/agents`
 was wholly unauthenticated and the workspace arrived as a caller-supplied header,
 so anyone who could reach the hub could enrol an agent into someone else's
-workspace and message their agents. Registration is now gated by a required
-token, constant-time compared. Four tests failed before the fix.
+workspace and message their agents. Registration is now **authorised by the
+owner's Ed25519 signature** over a descriptor binding the workspace, name,
+public key, scopes and webhook URL — so a captured signature cannot be
+retargeted, and scopes cannot be widened
+([ADR 0005](docs/adr/0005-owner-signed-registration.md), contract **0.3.0**,
+breaking). It first shipped as a shared token
+([ADR 0004](docs/adr/0004-gate-agent-registration.md), now superseded); that
+token identified no one and left `scopes` escalatable by whoever held it.
+Twelve tests failed before the two fixes.
 
-`make test-container` builds the image, boots it with a generated owner key and
-registration token on a fresh volume, and drives it over HTTP only — no `Store`
+`make test-container` builds the image, boots it with a generated owner key
+on a fresh volume, and drives it over HTTP only — no `Store`
 handle exists on that side of the boundary. It covers what the in-process suite
 structurally cannot: the env contract, the entrypoint and workspace links inside
 the image, body redaction in the real log stream read back via `docker logs`,
@@ -120,10 +126,10 @@ out of `make check` and out of CI — a build-plus-boot is minutes, not seconds.
 > pair of eyes on the approval gate, the signing path and the delivery scheduler
 > is the one thing this branch has not had.
 
-Decisions are recorded as ADRs in [`docs/adr/`](docs/adr/) — including the two
-the build itself produced (`node:sqlite` over `better-sqlite3`, and the
-registration gate). [`docs/TASKS.md`](docs/TASKS.md) carries per-task status,
-the fourteen defects TDD caught in the plan, and the verification debt this
+Decisions are recorded as ADRs in [`docs/adr/`](docs/adr/) — including the three
+the build itself produced (`node:sqlite` over `better-sqlite3`, the registration
+gate, and its replacement by owner signing). [`docs/TASKS.md`](docs/TASKS.md) carries per-task status,
+the sixteen defects TDD caught in the plan, and the verification debt this
 branch is carrying.
 
 ## Known follow-ups

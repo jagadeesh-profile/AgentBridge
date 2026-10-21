@@ -13,8 +13,7 @@ opens no database, and cannot reach hub internals: a test asserts no
 ```bash
 pnpm run dev                       # start the hub on :8080
 agentbridge keygen --out ./claude.key
-export AGENTBRIDGE_REGISTRATION_TOKEN=<the hub's token>
-agentbridge register --name claude --key ./claude.key \
+agentbridge register --name claude --key ./claude.key --owner-key ./owner.key \
   --scopes read,message,create_task,request_side_effect
 ```
 

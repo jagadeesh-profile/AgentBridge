@@ -64,7 +64,6 @@ async function main(): Promise<void> {
     ids,
     blob,
     ownerPublicKey,
-    registrationToken: required('AGENTBRIDGE_REGISTRATION_TOKEN'),
   });
 
   // Phase 0 runs delivery in-process. DELIVERY_MODE=worker runs only the

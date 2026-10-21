@@ -2,7 +2,12 @@ import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { promisify } from 'node:util';
 import * as ed from '@noble/ed25519';
-import { canonicalize, payloadHash } from '@agentbridge/contracts';
+import {
+  canonicalize,
+  payloadHash,
+  registrationDescriptor,
+  signDescriptor,
+} from '@agentbridge/contracts';
 import { Client, publicKeyBase64 } from '@agentbridge/sdk';
 
 const run = promisify(execFile);
@@ -14,7 +19,6 @@ export const WORKSPACE = 'ws_container';
 
 export interface ContainerHarness {
   baseUrl: string;
-  registrationToken: string;
   /** Registers over the real HTTP API and returns the agent's private key. */
   register: (name: string, scopes: string[], webhookUrl?: string) => Promise<Uint8Array>;
   client: (name: string, privateKey: Uint8Array) => Client;
@@ -78,7 +82,6 @@ async function waitHealthy(baseUrl: string, timeoutMs = 60_000): Promise<void> {
 export async function startContainer(): Promise<ContainerHarness> {
   const ownerPriv = ed.utils.randomPrivateKey();
   const ownerPub = await ed.getPublicKeyAsync(ownerPriv);
-  const registrationToken = randomBytes(32).toString('hex');
   const baseUrl = `http://127.0.0.1:${PORT}`;
 
   await run('docker', ['build', '-t', IMAGE, '.'], { maxBuffer: 64 * 1024 * 1024 });
@@ -97,8 +100,6 @@ export async function startContainer(): Promise<ContainerHarness> {
     `${PORT}:8080`,
     '-e',
     `AGENTBRIDGE_OWNER_PUBLIC_KEY=${publicKeyBase64(ownerPub)}`,
-    '-e',
-    `AGENTBRIDGE_REGISTRATION_TOKEN=${registrationToken}`,
     '-e',
     'DELIVERY_INTERVAL_MS=300',
     '-e',
@@ -121,17 +122,31 @@ export async function startContainer(): Promise<ContainerHarness> {
     webhookUrl?: string,
   ): Promise<Uint8Array> => {
     const priv = ed.utils.randomPrivateKey();
+    const publicKey = publicKeyBase64(await ed.getPublicKeyAsync(priv));
+    const issuedAt = new Date().toISOString();
     const res = await fetch(`${baseUrl}/v1/agents`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         'x-agentbridge-workspace': WORKSPACE,
-        'x-agentbridge-registration-token': registrationToken,
+        'x-agentbridge-timestamp': issuedAt,
+        // Enrolment is authorised by the OWNER's signature (ADR 0005).
+        'x-agentbridge-owner-signature': await signDescriptor(
+          registrationDescriptor({
+            workspace: WORKSPACE,
+            name,
+            publicKey,
+            scopes,
+            ...(webhookUrl === undefined ? {} : { webhookUrl }),
+            issuedAt,
+          }),
+          ownerPriv,
+        ),
       },
       body: JSON.stringify({
         name,
         capabilities: { skills: [], input: ['text', 'json'], output: ['text', 'json'] },
-        public_key: publicKeyBase64(await ed.getPublicKeyAsync(priv)),
+        public_key: publicKey,
         scopes,
         ...(webhookUrl === undefined ? {} : { webhook_url: webhookUrl }),
       }),
@@ -169,7 +184,6 @@ export async function startContainer(): Promise<ContainerHarness> {
 
   return {
     baseUrl,
-    registrationToken,
     register,
     client,
 

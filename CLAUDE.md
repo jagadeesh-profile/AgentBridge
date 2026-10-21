@@ -21,7 +21,7 @@ Every agent, the lead included, enforces these. A change that weakens one needs 
 5. **Ordering is guaranteed per thread, not across threads.** Phase 0: a durable SQLite outbox plus a scheduler that claims the oldest live row of a thread only when nothing is inflight on it. Phase 1: SQS FIFO with `MessageGroupId = thread_id`. Same semantics, different mechanism.
 6. **The hub stores no secrets.** No model API keys, no tool credentials. Outbound content is scanned and redacted for tokens and card numbers.
 7. **No LLM calls inside the hub in v1.** The hub routes, stores and governs. It does not think.
-8. **Least privilege by default.** New agents get `read` + `message` only. Other scopes are granted explicitly.
+8. **Least privilege by default.** New agents get `read` + `message` only. Other scopes are granted explicitly, and the owner's signature over the enrolment binds them (ADR 0005), so an agent cannot widen its own scopes.
 9. **Audit is append-only and hash-chained.** Never update or delete audit rows.
 
 ---
@@ -82,7 +82,7 @@ The Phase 0 design spec is [`docs/superpowers/specs/2026-10-20-agentbridge-phase
 Task status and the record of what shipped: [`docs/TASKS.md`](docs/TASKS.md).
 Architecture decisions: [`docs/adr/`](docs/adr/) — 0001 TypeScript and
 ports-and-adapters, 0002 signature-only auth, 0003 `node:sqlite`, 0004 gated
-registration.
+registration (superseded), 0005 owner-signed registration.
 
 ---
 

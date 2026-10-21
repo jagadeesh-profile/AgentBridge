@@ -19,8 +19,6 @@ let lines: string[];
 let ownerKeyPath: string;
 let claudeKeyPath: string;
 
-const REG_TOKEN = 'test-registration-token';
-
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'ab-cli-'));
   deps = makeFakes();
@@ -56,7 +54,6 @@ beforeEach(async () => {
       ...deps,
       clock: { now: () => new Date() },
       ownerPublicKey: ownerPub,
-      registrationToken: 'test-registration-token',
     },
     { logger: false, rateLimitMax: 5000 },
   );
@@ -128,7 +125,7 @@ describe('register', () => {
     const out = await register(env, {
       name: 'newbie',
       key: claudeKeyPath,
-      registrationToken: REG_TOKEN,
+      ownerKeyPath,
     });
     expect(out.ref).toBe('agent:newbie');
     expect(lines.join('\n')).toContain('read, message');
@@ -136,23 +133,24 @@ describe('register', () => {
 
   it('returns a webhook secret only when a url is given', async () => {
     expect(
-      (await register(env, { name: 'pull', key: claudeKeyPath, registrationToken: REG_TOKEN }))
-        .webhookSecret,
+      (await register(env, { name: 'pull', key: claudeKeyPath, ownerKeyPath })).webhookSecret,
     ).toBeNull();
     const pushy = await register(env, {
       name: 'pushy',
       key: claudeKeyPath,
+      ownerKeyPath,
       webhookUrl: 'https://p.example/hook',
-      registrationToken: REG_TOKEN,
     });
     expect(pushy.webhookSecret).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 
-describe('register is gated', () => {
-  it('REFUSES to register without the right token', async () => {
+describe('register is owner-signed', () => {
+  it('REFUSES to register when signed by a key that is not the owner key', async () => {
+    const wrongOwner = join(dir, 'not-the-owner.key');
+    await saveKey(wrongOwner, ed.utils.randomPrivateKey());
     await expect(
-      register(env, { name: 'intruder', key: claudeKeyPath, registrationToken: 'wrong' }),
+      register(env, { name: 'intruder', key: claudeKeyPath, ownerKeyPath: wrongOwner }),
     ).rejects.toThrow(/401|unauthenticated/i);
     expect(deps.store.getAgent('ws', 'agent:intruder')).toBeNull();
   });

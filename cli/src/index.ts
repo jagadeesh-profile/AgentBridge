@@ -13,7 +13,8 @@ import {
 const USAGE = `agentbridge — AgentBridge owner CLI
 
   agentbridge keygen   --out <path> [--force]
-  agentbridge register --name <slug> --key <path> [--scopes a,b] [--webhook-url <url>] [--skills a,b]
+  agentbridge register --name <slug> --key <path> --owner-key <path>
+                       [--scopes a,b] [--webhook-url <url>] [--skills a,b]
   agentbridge approve  --task <id> --owner-key <path> --agent <ref> --agent-key <path>
                        [--reject] --yes
   agentbridge revoke   --ref <agent:slug> --agent <ref> --agent-key <path> --yes
@@ -23,7 +24,6 @@ const USAGE = `agentbridge — AgentBridge owner CLI
 Environment:
   AGENTBRIDGE_URL        hub base url (default http://localhost:8080)
   AGENTBRIDGE_WORKSPACE  workspace id (required)
-  AGENTBRIDGE_REGISTRATION_TOKEN  required by the register command
 `;
 
 function env(): Env {
@@ -98,10 +98,8 @@ async function main(argv: string[]): Promise<void> {
         key: need(values.key, '--key'),
         ...(list(values.scopes) === undefined ? {} : { scopes: list(values.scopes) }),
         ...(values['webhook-url'] === undefined ? {} : { webhookUrl: values['webhook-url'] }),
+        ownerKeyPath: need(values['owner-key'], '--owner-key'),
         ...(list(values.skills) === undefined ? {} : { skills: list(values.skills) }),
-        ...(process.env.AGENTBRIDGE_REGISTRATION_TOKEN === undefined
-          ? {}
-          : { registrationToken: process.env.AGENTBRIDGE_REGISTRATION_TOKEN }),
       });
       return;
 

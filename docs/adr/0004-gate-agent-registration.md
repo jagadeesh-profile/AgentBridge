@@ -1,10 +1,15 @@
 # 0004 — Gate agent registration behind a shared token
 
-- **Status:** accepted
+- **Status:** superseded by [0005](0005-owner-signed-registration.md)
 - **Date:** 2026-10-20
 - **Deciders:** lead (finding), owner (accepted)
 - **Relates to:** [0002](0002-signature-only-auth-phase-0.md); `CLAUDE.md` §1.2,
   §1.8; PRD security table
+
+> **Superseded.** The shared token was always a stopgap; this ADR named
+> owner-key-signed registration as its replacement, and
+> [0005](0005-owner-signed-registration.md) implements it. The hole and the
+> reasoning below are kept because they explain why the gate exists at all.
 
 ## Context
 
