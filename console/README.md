@@ -60,7 +60,21 @@ Until ADR 0006 this endpoint accepted **any** authenticated agent with no scope
 check, so an agent holding the default `read` + `message` could revoke every
 other agent in the workspace. It is owner-only now.
 
+## The task board
+
+The **Tasks** tab groups every task by state, in pipeline order, and offers
+Cancel on anything not already terminal. Cancelling notifies both the creator
+and the assignee and is recorded in the audit chain as the owner's decision.
+
+Payloads are **not** fetched for this view (`include_payload=false`). The board
+answers "what is my workspace doing", which titles and states cover; Approvals
+is where a payload is read, because that is where one gets signed.
+
+Until this pass, `DELETE /v1/tasks/{id}` accepted any authenticated agent — and
+it writes an audit row attributed to the owner, so an agent could forge that
+attribution in an append-only log. Owner-only now.
+
 ## Not yet here
 
-Task board, audit viewer, and anything resembling multi-user access. Phase 0 is one owner with one key; ADR 0004 names WebAuthn as the
+Audit viewer, and anything resembling multi-user access. Phase 0 is one owner with one key; ADR 0004 names WebAuthn as the
 eventual home for that key, which would remove the file picker.

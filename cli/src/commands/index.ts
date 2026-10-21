@@ -30,6 +30,26 @@ async function ownerClient(env: Env, ownerKeyPath: string): Promise<OwnerClient>
   });
 }
 
+/* ------------------------------------------------------------------- tasks */
+
+/** The board, as a flat list. `--state` narrows it. */
+export async function tasks(
+  env: Env,
+  opts: { ownerKeyPath: string; state?: string | undefined },
+): Promise<PendingTask[]> {
+  const items = await (
+    await ownerClient(env, opts.ownerKeyPath)
+  ).listTasks({ ...(opts.state === undefined ? {} : { state: opts.state }) });
+  if (items.length === 0) {
+    env.write(opts.state === undefined ? 'no tasks' : `no tasks in ${opts.state}`);
+    return items;
+  }
+  for (const t of items) {
+    env.write(`${t.state.padEnd(15)} ${t.id}  ${t.title}  -> ${t.assignee}`);
+  }
+  return items;
+}
+
 /* ------------------------------------------------------------------ agents */
 
 /** The roster, so `revoke` has something to name. */

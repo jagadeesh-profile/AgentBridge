@@ -217,3 +217,48 @@ describe('OwnerClient kill switch', () => {
     await expect(owner.revokeAgentKey('agent:ghost')).rejects.toMatchObject({ code: 'not_found' });
   });
 });
+
+describe('OwnerClient task board', () => {
+  it('lists every state, not just what awaits approval', async () => {
+    gated('tsk_1');
+    gated('tsk_2', { to: 'c@d.com' }, 'working');
+    gated('tsk_3', { to: 'e@f.com' }, 'completed');
+    const all = await owner.listTasks();
+    expect(all.map((t) => t.state).sort()).toEqual(['completed', 'needs-approval', 'working']);
+  });
+
+  it('leaves payloads behind by default — a board does not need them', async () => {
+    gated('tsk_1', { to: 'secret@example.com' });
+    const [task] = await owner.listTasks();
+    expect(task?.payload).toBeUndefined();
+    // The hash still arrives, so the board can show it.
+    expect(task?.payloadHash).toBe(payloadHash({ to: 'secret@example.com' }));
+  });
+
+  it('fetches payloads when asked, so one call can serve both views', async () => {
+    gated('tsk_1', { to: 'a@b.com' });
+    const [task] = await owner.listTasks({ includePayload: true });
+    expect(task?.payload).toEqual({ to: 'a@b.com' });
+  });
+
+  it('cancels a task as the owner', async () => {
+    gated('tsk_1');
+    await owner.cancelTask('tsk_1');
+    expect(deps.store.getTask('ws', 'tsk_1')?.state).toBe('canceled');
+  });
+
+  it('refuses to cancel a task already in a terminal state', async () => {
+    gated('tsk_1', { to: 'a@b.com' }, 'completed');
+    await expect(owner.cancelTask('tsk_1')).rejects.toMatchObject({
+      code: 'illegal_transition',
+    });
+    expect(deps.store.getTask('ws', 'tsk_1')?.state).toBe('completed');
+  });
+
+  it('records the cancel in the audit chain, attributed to the owner', async () => {
+    gated('tsk_1');
+    await owner.cancelTask('tsk_1');
+    const row = deps.store.listAudit('ws', 0, 50).find((r) => r.action === 'task.cancel');
+    expect(row?.actor).toBe('owner');
+  });
+});

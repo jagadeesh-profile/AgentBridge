@@ -217,3 +217,36 @@ button.tab.on {
   margin-left: 0.5rem;
   vertical-align: middle;
 }
+
+.column {
+  margin-bottom: 1.75rem;
+}
+
+.column-head {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.6rem;
+}
+
+.column-head .count {
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  margin-left: 0.3rem;
+  font-size: 0.72rem;
+}
+
+.effect-tag {
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 0.08rem 0.45rem;
+}

@@ -3,6 +3,7 @@ import { parseArgs } from 'node:util';
 import {
   agents,
   approve,
+  tasks,
   pending,
   auditVerify,
   inbox,
@@ -19,6 +20,7 @@ const USAGE = `agentbridge — AgentBridge owner CLI
                        [--scopes a,b] [--webhook-url <url>] [--skills a,b]
   agentbridge pending  --owner-key <path>
   agentbridge approve  --task <id> --owner-key <path> [--reject] --yes
+  agentbridge tasks    --owner-key <path> [--state <state>]
   agentbridge agents   --owner-key <path>
   agentbridge revoke   --ref <agent:slug> --owner-key <path> --yes
   agentbridge inbox    --agent <ref> --agent-key <path> [--limit n]
@@ -77,6 +79,7 @@ async function main(argv: string[]): Promise<void> {
       agent: { type: 'string' },
       'agent-key': { type: 'string' },
       ref: { type: 'string' },
+      state: { type: 'string' },
       reject: { type: 'boolean' },
       limit: { type: 'string' },
       yes: { type: 'boolean' },
@@ -117,6 +120,13 @@ async function main(argv: string[]): Promise<void> {
         ownerKeyPath: need(values['owner-key'], '--owner-key'),
         decision: values.reject === true ? 'reject' : 'approve',
         ...(values.yes === true ? { yes: true } : {}),
+      });
+      return;
+
+    case 'tasks':
+      await tasks(e, {
+        ownerKeyPath: need(values['owner-key'], '--owner-key'),
+        ...(values.state === undefined ? {} : { state: values.state }),
       });
       return;
 

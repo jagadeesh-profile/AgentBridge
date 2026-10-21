@@ -5,6 +5,7 @@ import { canonicalize, payloadHash } from '@agentbridge/contracts';
 import { OwnerClient, type AgentSummary, type PendingTask } from '@agentbridge/sdk/owner';
 import { OwnerKeyError, parseOwnerKey, wipeKey } from '@/lib/owner-key';
 import { Agents } from '@/components/agents';
+import { Board } from '@/components/board';
 
 /**
  * The approvals queue.
@@ -25,7 +26,8 @@ export default function ApprovalsPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [tasks, setTasks] = useState<PendingTask[] | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
-  const [view, setView] = useState<'approvals' | 'agents'>('approvals');
+  const [board, setBoard] = useState<PendingTask[]>([]);
+  const [view, setView] = useState<'approvals' | 'board' | 'agents'>('approvals');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -33,8 +35,13 @@ export default function ApprovalsPage() {
     try {
       // Both in one go: revoking changes who can act, and a stale approval
       // list beside a fresh roster is the confusing combination.
-      const [pending, roster] = await Promise.all([c.listPendingApprovals(), c.listAgents()]);
+      const [pending, all, roster] = await Promise.all([
+        c.listPendingApprovals(),
+        c.listTasks(),
+        c.listAgents(),
+      ]);
       setTasks(pending);
+      setBoard(all);
       setAgents(roster);
       setError(null);
     } catch (err) {
@@ -64,11 +71,13 @@ export default function ApprovalsPage() {
     // leave the owner on a signed-in screen, holding a key, wondering why
     // every button fails.
     try {
-      const [pending, roster] = await Promise.all([
+      const [pending, all, roster] = await Promise.all([
         client.listPendingApprovals(),
+        client.listTasks(),
         client.listAgents(),
       ]);
       setTasks(pending);
+      setBoard(all);
       setAgents(roster);
     } catch (err) {
       wipeKey(key);
@@ -83,6 +92,7 @@ export default function ApprovalsPage() {
     if (session !== null) wipeKey(session.key);
     setSession(null);
     setTasks(null);
+    setBoard([]);
     setAgents([]);
     setView('approvals');
     setError(null);
@@ -147,7 +157,9 @@ export default function ApprovalsPage() {
   return (
     <main>
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <h1>{view === 'approvals' ? 'Awaiting your decision' : 'Agents'}</h1>
+        <h1>
+          {view === 'approvals' ? 'Awaiting your decision' : view === 'board' ? 'Tasks' : 'Agents'}
+        </h1>
         <div className="row">
           <button onClick={() => void refresh(session.client)}>Refresh</button>
           <button onClick={lock}>Lock</button>
@@ -164,12 +176,23 @@ export default function ApprovalsPage() {
         >
           Approvals{tasks !== null && tasks.length > 0 ? ` (${tasks.length})` : ''}
         </button>
+        <button className={view === 'board' ? 'tab on' : 'tab'} onClick={() => setView('board')}>
+          Tasks ({board.length})
+        </button>
         <button className={view === 'agents' ? 'tab on' : 'tab'} onClick={() => setView('agents')}>
           Agents ({agents.length})
         </button>
       </div>
 
       {error !== null && <p className="error">{error}</p>}
+
+      {view === 'board' && (
+        <Board
+          client={session.client}
+          tasks={board}
+          onChanged={() => void refresh(session.client)}
+        />
+      )}
 
       {view === 'agents' && (
         <Agents
@@ -233,6 +256,12 @@ export default function ApprovalsPage() {
             Read the payload, not the title — the title is written by the agent that asked. Your
             signature covers the payload shown above and nothing else; if it changes before you
             decide, the hub refuses the approval rather than applying it to the new one.
+          </>
+        ) : view === 'board' ? (
+          <>
+            Payloads are not fetched for this view — open Approvals to read what a task actually
+            asks for. Cancelling notifies both the creator and the assignee, and is recorded in the
+            audit chain as your decision.
           </>
         ) : (
           <>

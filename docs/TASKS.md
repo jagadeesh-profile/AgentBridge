@@ -20,7 +20,7 @@ see "Verification debt".
 | Command | Result |
 |---|---|
 | `pnpm --filter @agentbridge/console run build` | **compiles** |
-| `make check` — lint, `tsc --strict`, unit, contract-drift | **467 tests** |
+| `make check` — lint, `tsc --strict`, unit, contract-drift | **486 tests** |
 | `make test-e2e` — real hub, SQLite on disk, delivery worker | **24 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests** |
 | `make conformance` — MCP tool surface | **8 tests** |
@@ -92,7 +92,11 @@ see "Verification debt".
 | **Console — approvals view** | ✅ Next.js; key in-browser only; driven in a real browser against a real hub |
 | **Console — kill switch** | ✅ owner-signed revoke + roster; typed-name confirmation |
 | `DELETE /v1/agents/{ref}/key` was callable by ANY agent | ✅ security fix; owner-only (ADR 0006), contract 0.5.0 |
-| Console — task board, audit viewer | ⬜ next console pass |
+| **Console — task board** | ✅ grouped by state, owner cancel, payloads not fetched |
+| `DELETE /v1/tasks/{id}` was callable by ANY agent | ✅ security fix; it forged `actor: owner` in the audit chain |
+| Route-classification guard | ✅ `route-guards.test.ts`; every route pinned to a bucket |
+| `GET /v1/audit/verify`, `GET /v1/dlq` still on agent auth | ⬜ known gap, recorded in the guard; audit-viewer pass |
+| Console — audit viewer | ⬜ next console pass |
 
 ## What TDD caught that the plan got wrong
 

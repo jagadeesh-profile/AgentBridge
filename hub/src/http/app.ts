@@ -75,6 +75,10 @@ const OWNER_ROUTES: readonly (readonly [string, string])[] = [
   // check, so any agent holding the default read+message could revoke every
   // other agent in the workspace — the opposite of CLAUDE.md §1.8.
   ['DELETE', '/v1/agents/:ref/key'],
+  // Owner cancel. `cancelTaskAsOwner` writes an audit row attributed to the
+  // owner, so an agent reaching it forged that attribution in an append-only,
+  // hash-chained log — a lie that outlives the request.
+  ['DELETE', '/v1/tasks/:id'],
 ];
 
 /**
@@ -374,8 +378,7 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
   });
 
   app.delete<{ Params: { id: string } }>('/v1/tasks/:id', async (req) => {
-    const ws = workspaceOf(req);
-    requireAgent(req);
+    const ws = requireOwner(req);
     return cancelTaskAsOwner(deps, ws, req.params.id, {
       ...(req.traceId === undefined ? {} : { traceId: req.traceId }),
     });
@@ -407,7 +410,7 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
         creator: t.creator,
         assignee: t.assignee,
         title: t.title,
-        payload: t.payload,
+        ...(q.include_payload ? { payload: t.payload } : {}),
         payload_hash: t.payloadHash,
         state: t.state,
         side_effect: t.sideEffect,

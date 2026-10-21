@@ -12,6 +12,7 @@ import { saveKey } from '@agentbridge/sdk';
 import {
   agents,
   approve,
+  tasks,
   auditVerify,
   inbox,
   keygen,
@@ -298,6 +299,39 @@ describe('agents', () => {
     const out = lines.join('\n');
     expect(out).toMatch(/REVOKED\s+agent:muse/);
     expect(out).toMatch(/active\s+agent:claude/);
+  });
+});
+
+describe('tasks', () => {
+  it('lists every state, with the state in the output', async () => {
+    gatedTask();
+    const id = deps.ids.ulid('tsk');
+    deps.store.putTask({
+      id,
+      workspace: 'ws',
+      thread: 'thr_1',
+      creator: 'agent:claude',
+      assignee: 'agent:muse',
+      title: 'list matches',
+      payload: {},
+      payloadHash: payloadHash({}),
+      state: 'working',
+      sideEffect: false,
+      dueAt: null,
+      createdAt: '2026-10-20T12:00:01.000Z',
+      updatedAt: '2026-10-20T12:00:01.000Z',
+    });
+    const out = await tasks(env, { ownerKeyPath });
+    expect(out).toHaveLength(2);
+    const out2 = lines.join('\n');
+    expect(out2).toContain('working');
+    expect(out2).toContain('needs-approval');
+  });
+
+  it('narrows to one state when asked', async () => {
+    gatedTask();
+    const out = await tasks(env, { ownerKeyPath, state: 'completed' });
+    expect(out).toHaveLength(0);
   });
 });
 

@@ -634,6 +634,35 @@ describe('owner-authenticated routes (ADR 0006)', () => {
       expect(item?.payload_hash).toBe(payloadHash({ to: 'recruiter@example.com' }));
     });
 
+    it('OMITS payloads when include_payload=false, so a board need not pull them', async () => {
+      gated('tsk_a', { to: 'secret@example.com' });
+      const res = await app.inject(await ownerSigned('GET', '/v1/tasks?include_payload=false'));
+      const item = (res.json().items as { payload?: unknown; payload_hash: string }[])[0];
+      expect(item).not.toHaveProperty('payload');
+      // The hash still travels: the board can show it, and a client that wants
+      // to decide must re-fetch with payloads and recompute.
+      expect(item?.payload_hash).toBe(payloadHash({ to: 'secret@example.com' }));
+      expect(res.body).not.toContain('secret@example.com');
+    });
+
+    it('still includes payloads by default, so no existing caller breaks', async () => {
+      gated('tsk_a', { to: 'a@b.com' });
+      const res = await app.inject(await ownerSigned('GET', '/v1/tasks'));
+      expect((res.json().items as { payload: unknown }[])[0]?.payload).toEqual({ to: 'a@b.com' });
+    });
+
+    it('lists every state when no filter is given, which is what a board needs', async () => {
+      gated('tsk_a');
+      gated('tsk_b', { to: 'c@d.com' }, 'completed');
+      gated('tsk_c', { to: 'e@f.com' }, 'working');
+      const res = await app.inject(await ownerSigned('GET', '/v1/tasks?include_payload=false'));
+      expect((res.json().items as { id: string }[]).map((t) => t.id).sort()).toEqual([
+        'tsk_a',
+        'tsk_b',
+        'tsk_c',
+      ]);
+    });
+
     it('REFUSES an agent signature — this is owner-only', async () => {
       gated('tsk_a');
       const res = await app.inject(await signed('GET', '/v1/tasks?state=needs-approval'));
@@ -742,6 +771,42 @@ describe('owner-authenticated routes (ADR 0006)', () => {
       it('404s on an unknown agent rather than reporting success', async () => {
         const res = await app.inject(await ownerSigned('DELETE', '/v1/agents/agent%3Aghost/key'));
         expect(res.statusCode).toBe(404);
+      });
+    });
+
+    describe('owner cancel', () => {
+      it('cancels on an owner-signed request', async () => {
+        gated('tsk_a');
+        const res = await app.inject(await ownerSigned('DELETE', '/v1/tasks/tsk_a'));
+        expect(res.statusCode).toBe(200);
+        expect(deps.store.getTask('ws', 'tsk_a')?.state).toBe('canceled');
+      });
+
+      it('REFUSES an agent-signed cancel, which would forge the audit actor', async () => {
+        // cancelTaskAsOwner writes actor 'owner'. An agent reaching it puts a
+        // false actor into an append-only, hash-chained log.
+        gated('tsk_a');
+        const res = await app.inject(await signed('DELETE', '/v1/tasks/tsk_a'));
+        expect(res.statusCode).toBe(401);
+        expect(deps.store.getTask('ws', 'tsk_a')?.state).toBe('needs-approval');
+      });
+
+      it('writes NO audit row at all when the caller is not the owner', async () => {
+        gated('tsk_a');
+        const before = deps.store.listAudit('ws', 0, 100).length;
+        await app.inject(await signed('DELETE', '/v1/tasks/tsk_a'));
+        const rows = deps.store.listAudit('ws', 0, 100);
+        expect(rows).toHaveLength(before);
+        expect(rows.some((r) => r.action === 'task.cancel')).toBe(false);
+      });
+
+      it('binds the task id, so a cancel signature cannot be retargeted', async () => {
+        gated('tsk_a');
+        gated('tsk_b');
+        const forA = await ownerSigned('DELETE', '/v1/tasks/tsk_a');
+        const res = await app.inject({ ...forA, url: '/v1/tasks/tsk_b' });
+        expect(res.statusCode).toBe(401);
+        expect(deps.store.getTask('ws', 'tsk_b')?.state).toBe('needs-approval');
       });
     });
 

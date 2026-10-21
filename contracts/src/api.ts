@@ -109,6 +109,16 @@ const TaskStateEnum = z.enum(TASK_STATES);
 export const TaskListQuery = z.object({
   state: TaskStateEnum.optional().describe('Filter by state, e.g. needs-approval.'),
   limit: z.coerce.number().int().min(1).max(200).default(50),
+  /**
+   * Defaults to true so this stays backwards compatible. The approval queue
+   * needs payloads — it is what the owner signs. A task board does not, and
+   * fetching 200 of them to draw a list of titles is the one place a whole
+   * workspace of payloads would cross the wire at once.
+   */
+  include_payload: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
 });
 
 export const TaskListResponse = z.object({
@@ -120,11 +130,12 @@ export const TaskListResponse = z.object({
       assignee: AgentRefSchema,
       title: z.string().min(1),
       /**
-       * The payload as stored. The console MUST recompute `payload_hash` from
-       * this rather than trust the field below — signing the hub's hash would
-       * approve whatever the hub claimed, which is what the gate prevents.
+       * The payload as stored, omitted when `include_payload=false`. A client
+       * deciding an approval MUST recompute `payload_hash` from this rather
+       * than trust the field below — signing the hub's hash would approve
+       * whatever the hub claimed, which is what the gate prevents.
        */
-      payload: z.unknown(),
+      payload: z.unknown().optional(),
       payload_hash: Sha256Hex,
       state: TaskStateEnum,
       side_effect: z.boolean(),

@@ -64,7 +64,8 @@ interface WireTask {
   creator: string;
   assignee: string;
   title: string;
-  payload: unknown;
+  /** Absent when the caller asked for include_payload=false. */
+  payload?: unknown;
   payload_hash: string;
   state: string;
   side_effect: boolean;
@@ -96,23 +97,43 @@ export class OwnerClient {
   }
 
   async listPendingApprovals(limit = 50): Promise<PendingTask[]> {
+    // include_payload is explicit: deciding an approval requires the payload,
+    // because the hash that gets signed is recomputed from it.
     const res = await this.request<{ items: WireTask[] }>(
       'GET',
-      `/v1/tasks?limit=${limit}&state=needs-approval`,
+      `/v1/tasks?include_payload=true&limit=${limit}&state=needs-approval`,
     );
-    return res.items.map((t) => ({
-      id: t.id,
-      thread: t.thread,
-      creator: t.creator,
-      assignee: t.assignee,
-      title: t.title,
-      payload: t.payload,
-      payloadHash: t.payload_hash,
-      state: t.state,
-      sideEffect: t.side_effect,
-      createdAt: t.created_at,
-      updatedAt: t.updated_at,
-    }));
+    return res.items.map(toTask);
+  }
+
+  /**
+   * Every task in the workspace, for the board.
+   *
+   * Payloads are left out by default here — the inverse of the hub's default,
+   * which stays `true` so older callers keep working. A board shows titles and
+   * states; pulling a whole workspace of payloads to draw it is the one place
+   * they would all cross the wire at once.
+   */
+  async listTasks(
+    opts: { state?: string; limit?: number; includePayload?: boolean } = {},
+  ): Promise<PendingTask[]> {
+    const q = new URLSearchParams({
+      limit: String(opts.limit ?? 200),
+      include_payload: String(opts.includePayload ?? false),
+    });
+    if (opts.state !== undefined) q.set('state', opts.state);
+    const res = await this.request<{ items: WireTask[] }>('GET', `/v1/tasks?${q.toString()}`);
+    return res.items.map(toTask);
+  }
+
+  /**
+   * Cancels a task as the owner.
+   *
+   * Legal only from a non-terminal state — the transition table decides, not
+   * this method — and it notifies both the creator and the assignee.
+   */
+  async cancelTask(taskId: string): Promise<{ id: string; state: string }> {
+    return this.request('DELETE', `/v1/tasks/${encodeURIComponent(taskId)}`);
   }
 
   /** Who is in the workspace, and whose key still works. */
@@ -209,6 +230,20 @@ export class OwnerClient {
     throw await toTypedError(res);
   }
 }
+
+const toTask = (t: WireTask): PendingTask => ({
+  id: t.id,
+  thread: t.thread,
+  creator: t.creator,
+  assignee: t.assignee,
+  title: t.title,
+  payload: t.payload,
+  payloadHash: t.payload_hash,
+  state: t.state,
+  sideEffect: t.side_effect,
+  createdAt: t.created_at,
+  updatedAt: t.updated_at,
+});
 
 async function toTypedError(res: Response): Promise<Error> {
   let parsed: WireError = {};

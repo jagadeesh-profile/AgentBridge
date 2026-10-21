@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AgentBridge
-  version: 0.5.0
+  version: 0.6.0
   description: Generated from contracts/src/*.ts. Do not edit by hand; run `make contracts`.
 paths:
   /v1/agents:
@@ -713,6 +713,12 @@ components:
           minimum: 1
           maximum: 200
           default: 50
+        include_payload:
+          type: string
+          enum:
+            - "true"
+            - "false"
+          default: "true"
       additionalProperties: false
       $schema: http://json-schema.org/draft-07/schema#
     TaskListResponse:

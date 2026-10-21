@@ -84,10 +84,22 @@ check**, so any agent holding the default `read` + `message` could revoke every
 other agent in the workspace — the exact opposite of `CLAUDE.md` §1.8. There is
 no `revoke` scope to have checked; the only gate was "be authenticated at all".
 
+`DELETE /v1/tasks/{id}` — owner cancel — had the same shape and is worse:
+`cancelTaskAsOwner` writes an audit row with `actor: 'owner'`, so an agent
+reaching it forged that attribution inside an append-only, hash-chained log. A
+false entry there outlives the request and cannot be edited out by design.
+
 Owner routes are matched on Fastify's route *pattern*, not the concrete URL, so
 a parameterised path is recognised without re-implementing path matching. The
-signature still covers the concrete path, so swapping `:ref` after signing
-invalidates it — tested.
+signature still covers the concrete path, so swapping `:ref` or `:id` after
+signing invalidates it — tested.
+
+Three routes shipped with owner semantics behind `requireAgent`, each found by
+hand, one at a time. `hub/src/http/route-guards.test.ts` now pins every route
+to a declared bucket and fails on an unclassified, added or moved route, so the
+next one has to be a deliberate decision. It also records the two that remain
+on agent auth — `GET /v1/audit/verify` and `GET /v1/dlq` — as a known gap
+rather than letting silence imply they were considered.
 
 ### 3. The owner key stays in the browser
 
@@ -142,7 +154,9 @@ hub asserted — the gate would be verifying a signature over the hub's own clai
   where a misclick is likeliest — but it is a confirmation, not an undo.
 - `GET /v1/tasks` returns full payloads to the owner. Correct — they must read
   what they are approving — but it means the owner route is the one place a
-  whole payload crosses the wire, and it must never be logged.
+  whole payload crosses the wire, and it must never be logged. `include_payload`
+  (default `true`, so nothing breaks) lets the task board opt out; the console
+  board sets it `false` and a test asserts no payload reaches the page.
 
 ## Alternatives considered
 
