@@ -254,6 +254,30 @@ importers:
         specifier: workspace:*
         version: link:../../hub
 
+  tests:
+    devDependencies:
+      '@agentbridge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@agentbridge/delivery':
+        specifier: workspace:*
+        version: link:../delivery
+      '@agentbridge/hub':
+        specifier: workspace:*
+        version: link:../hub
+      '@agentbridge/mcp':
+        specifier: workspace:*
+        version: link:../adapters/mcp
+      '@agentbridge/sdk':
+        specifier: workspace:*
+        version: link:../sdk/typescript
+      '@noble/ed25519':
+        specifier: 2.3.0
+        version: 2.3.0
+      ulid:
+        specifier: 2.4.0
+        version: 2.4.0
+
 packages:
 
   '@eslint-community/eslint-utils@4.10.1':

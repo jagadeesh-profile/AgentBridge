@@ -54,3 +54,5 @@ export function buildServer(client: Client): McpServer {
 
   return server;
 }
+
+export { TOOLS, TOOL_NAMES, UNTRUSTED_NOTICE, type ToolDef } from './tools.js';

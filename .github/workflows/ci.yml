@@ -13,4 +13,6 @@ jobs:
           cache: pnpm
       - run: make setup
       - run: make check
+      - run: make test-e2e
+      - run: make conformance
       - run: pnpm audit --audit-level=high

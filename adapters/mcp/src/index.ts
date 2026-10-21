@@ -28,6 +28,3 @@ main().catch((err: unknown) => {
   process.stderr.write(`agentbridge-mcp failed to start: ${String(err)}\n`);
   process.exit(1);
 });
-
-export { buildServer } from './server.js';
-export { TOOLS, TOOL_NAMES, UNTRUSTED_NOTICE } from './tools.js';

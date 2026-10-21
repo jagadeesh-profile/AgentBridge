@@ -13,8 +13,8 @@
     "contracts:drift": "node scripts/check-contract-drift.mjs",
     "lint": "eslint . && prettier --check . && tsc -b",
     "test": "vitest run",
-    "test-e2e": "vitest run --dir tests/e2e",
-    "conformance": "vitest run --dir tests/conformance",
+    "test-e2e": "vitest run --config vitest.integration.config.ts tests/e2e",
+    "conformance": "vitest run --config vitest.integration.config.ts tests/conformance",
     "check": "pnpm run lint && pnpm run test && pnpm run contracts"
   },
   "devDependencies": {

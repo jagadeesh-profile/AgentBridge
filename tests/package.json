@@ -1,0 +1,15 @@
+{
+  "name": "@agentbridge/tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@agentbridge/contracts": "workspace:*",
+    "@agentbridge/delivery": "workspace:*",
+    "@agentbridge/hub": "workspace:*",
+    "@agentbridge/mcp": "workspace:*",
+    "@agentbridge/sdk": "workspace:*",
+    "@noble/ed25519": "2.3.0",
+    "ulid": "2.4.0"
+  }
+}
