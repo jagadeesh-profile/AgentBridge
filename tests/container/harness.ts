@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import * as ed from '@noble/ed25519';
 import {
   canonicalize,
+  ownerRequestDescriptor,
   payloadHash,
   registrationDescriptor,
   signDescriptor,
@@ -22,18 +23,23 @@ export interface ContainerHarness {
   /** Registers over the real HTTP API and returns the agent's private key. */
   register: (name: string, scopes: string[], webhookUrl?: string) => Promise<Uint8Array>;
   client: (name: string, privateKey: Uint8Array) => Client;
+  /** The owner's client: queue, board, roster, kill switch, audit. */
+  owner: OwnerClient;
   ownerApprove: (
-    client: Client,
     taskId: string,
     decision?: 'approve' | 'reject',
   ) => Promise<{ status: number; code: string | null }>;
-  /** The owner's client: queue, board, roster, kill switch, audit. */
-  owner: OwnerClient;
   /** Signs an owner decision over a hash the caller picks — for negatives. */
   ownerApproveWithHash: (
-    client: Client,
     taskId: string,
     hash: string,
+  ) => Promise<{ status: number; code: string | null }>;
+  /**
+   * Owner-signs the REQUEST but sends the decision body verbatim, so a test
+   * can vary the body's own signature independently of request auth.
+   */
+  postDecision: (
+    decisionBody: Record<string, unknown>,
   ) => Promise<{ status: number; code: string | null }>;
   restart: () => Promise<void>;
   logs: () => Promise<string>;
@@ -168,34 +174,80 @@ export async function startContainer(): Promise<ContainerHarness> {
     return { issuedAt, sig: `ed25519:${Buffer.from(sig).toString('base64')}` };
   };
 
+  /**
+   * Posts an owner decision over a hash the caller chose.
+   *
+   * Signed and sent by hand rather than through OwnerClient.decide, which
+   * always recomputes the hash from the payload — these tests need to put a
+   * chosen hash on the wire to prove the HUB enforces the binding rather than
+   * relying on a well-behaved client. The request itself is owner-signed
+   * (ADR 0006); it used to ride on a borrowed agent identity.
+   */
+  const ownerClient = new OwnerClient({ baseUrl, workspace: WORKSPACE, privateKey: ownerPriv });
+
+  const postDecision = async (
+    decisionBody: Record<string, unknown>,
+  ): Promise<{ status: number; code: string | null }> => {
+    const issuedAt = new Date().toISOString();
+    const body = JSON.stringify(decisionBody);
+    const requestSig = await signDescriptor(
+      ownerRequestDescriptor({
+        method: 'POST',
+        path: '/v1/approvals',
+        query: {},
+        body,
+        workspace: WORKSPACE,
+        issuedAt,
+      }),
+      ownerPriv,
+    );
+    const res = await fetch(`${baseUrl}/v1/approvals`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-agentbridge-workspace': WORKSPACE,
+        'x-agentbridge-timestamp': issuedAt,
+        'x-agentbridge-owner-signature': requestSig,
+      },
+      body,
+    });
+    if (res.ok) return { status: res.status, code: null };
+    const parsed = (await res.json()) as { error?: { code?: string } };
+    return { status: res.status, code: parsed.error?.code ?? null };
+  };
+
   const submit = async (
-    c: Client,
     taskId: string,
     decision: 'approve' | 'reject',
     hash: string,
   ): Promise<{ status: number; code: string | null }> => {
     const { issuedAt, sig } = await sign(taskId, decision, hash);
-    try {
-      await c.decideApproval({ task: taskId, decision, payloadHash: hash, issuedAt, sig });
-      return { status: 200, code: null };
-    } catch (err) {
-      const code = err instanceof Error && 'code' in err ? String(err.code) : null;
-      return { status: code === null ? 500 : 409, code };
-    }
+    return postDecision({
+      task: taskId,
+      decision,
+      payload_hash: hash,
+      issued_at: issuedAt,
+      sig,
+    });
   };
 
   return {
     baseUrl,
     register,
     client,
-    owner: new OwnerClient({ baseUrl, workspace: WORKSPACE, privateKey: ownerPriv }),
+    owner: ownerClient,
 
-    ownerApprove: async (c, taskId, decision = 'approve') => {
-      const task = await c.getTask(taskId);
-      return submit(c, taskId, decision, payloadHash(task.payload));
+    ownerApprove: async (taskId, decision = 'approve') => {
+      // Read from the owner's own queue, with payloads, so the hash signed is
+      // derived from what the owner would have been shown.
+      const task = (await ownerClient.listPendingApprovals()).find((t) => t.id === taskId);
+      if (task === undefined) throw new Error(`${taskId} is not awaiting approval`);
+      return submit(taskId, decision, payloadHash(task.payload));
     },
 
-    ownerApproveWithHash: async (c, taskId, hash) => submit(c, taskId, 'approve', hash),
+    ownerApproveWithHash: async (taskId, hash) => submit(taskId, 'approve', hash),
+
+    postDecision,
 
     restart: async () => {
       await run('docker', ['restart', CONTAINER]);

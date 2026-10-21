@@ -22,7 +22,7 @@ see "Verification debt".
 | `pnpm --filter @agentbridge/console run build` | **compiles** |
 | `make check` — lint, `tsc --strict`, unit, contract-drift | **505 tests** |
 | `make test-e2e` — real hub, SQLite on disk, delivery worker | **24 tests** |
-| `make test-container` — the real Docker image, HTTP only | **20 tests** |
+| `make test-container` — the real Docker image, HTTP only | **20 tests**, re-run against a freshly built image after the console work |
 | `make conformance` — MCP tool surface | **8 tests** |
 
 ## Stage A — contracts and crypto

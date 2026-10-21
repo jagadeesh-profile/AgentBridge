@@ -253,7 +253,7 @@ describe('the approval gate, through the container', () => {
     const before = (await muse.listInbox()).items.filter((i) => i.task === gated.id);
     expect(before).toHaveLength(0);
 
-    const decided = await h.ownerApprove(claude, gated.id);
+    const decided = await h.ownerApprove(gated.id);
     expect(decided.code).toBeNull();
 
     const after = (await muse.listInbox()).items.filter((i) => i.task === gated.id);
@@ -268,7 +268,7 @@ describe('the approval gate, through the container', () => {
       title: 'send it',
       payload: { to: 'a@b.com' },
     });
-    const res = await h.ownerApproveWithHash(claude, gated.id, 'f'.repeat(64));
+    const res = await h.ownerApproveWithHash(gated.id, 'f'.repeat(64));
     expect(res.code).toBe('approval_hash_mismatch');
     expect((await claude.getTask(gated.id)).state).toBe('needs-approval');
   });
@@ -283,8 +283,8 @@ describe('the approval gate, through the container', () => {
     });
     const task = await claude.getTask(gated.id);
     const hash = payloadHash(task.payload);
-    expect((await h.ownerApproveWithHash(claude, gated.id, hash)).code).toBeNull();
-    expect((await h.ownerApproveWithHash(claude, gated.id, hash)).code).not.toBeNull();
+    expect((await h.ownerApproveWithHash(gated.id, hash)).code).toBeNull();
+    expect((await h.ownerApproveWithHash(gated.id, hash)).code).not.toBeNull();
   });
 
   it('never delivers a rejected side effect', async () => {
@@ -295,7 +295,7 @@ describe('the approval gate, through the container', () => {
       title: 'send it',
       payload: { to: 'a@b.com' },
     });
-    await h.ownerApprove(claude, gated.id, 'reject');
+    await h.ownerApprove(gated.id, 'reject');
     expect((await claude.getTask(gated.id)).state).toBe('failed');
     expect((await muse.listInbox()).items.filter((i) => i.task === gated.id)).toHaveLength(0);
   });
@@ -323,15 +323,18 @@ describe('the approval gate, through the container', () => {
       ),
       impostor,
     );
-    await expect(
-      claude.decideApproval({
-        task: gated.id,
-        decision: 'approve',
-        payloadHash: hash,
-        issuedAt,
-        sig: `ed25519:${Buffer.from(sig).toString('base64')}`,
-      }),
-    ).rejects.toMatchObject({ code: 'signature_invalid' });
+    // The REQUEST is correctly owner-signed; only the decision inside it is
+    // signed by someone else. That separation matters: it proves the gate still
+    // checks the decision signature on its own, rather than treating a valid
+    // owner request as blanket authority over whatever body it carries.
+    const res = await h.postDecision({
+      task: gated.id,
+      decision: 'approve',
+      payload_hash: hash,
+      issued_at: issuedAt,
+      sig: `ed25519:${Buffer.from(sig).toString('base64')}`,
+    });
+    expect(res.code).toBe('signature_invalid');
     expect((await claude.getTask(gated.id)).state).toBe('needs-approval');
   });
 });
@@ -400,7 +403,7 @@ describe('the kill switch works in the real deployment', () => {
     const doomed = h.client('doomed', doomedPriv);
     await expect(doomed.listInbox()).resolves.toBeDefined();
 
-    await claude.revokeAgentKey('agent:doomed');
+    await h.owner.revokeAgentKey('agent:doomed');
 
     await expect(doomed.listInbox()).rejects.toMatchObject({ code: 'key_revoked' });
   });
