@@ -34,10 +34,22 @@ describe('registerAgent', () => {
     expect(deps.store.listAudit('ws', 0, 10).map((r) => r.action)).toContain('agent.register');
   });
 
-  it('rejects a duplicate agent name in the same workspace', () => {
+  it('rejects a duplicate agent name as a CONFLICT, not a schema error', () => {
     const deps = makeFakes();
     registerAgent(deps, 'ws', req);
-    expect(() => registerAgent(deps, 'ws', req)).toThrow();
+    // The request was well-formed; the name is taken. A 400 tells the caller to
+    // fix their payload, which is misleading — there is nothing wrong with it.
+    expect(() => registerAgent(deps, 'ws', req)).toThrow(
+      expect.objectContaining({ code: 'already_exists', status: 409 }),
+    );
+  });
+
+  it('leaves the existing agent untouched when a duplicate is refused', () => {
+    const deps = makeFakes();
+    const first = registerAgent(deps, 'ws', req);
+    expect(() => registerAgent(deps, 'ws', { ...req, public_key: 'DIFFERENT' })).toThrow();
+    // A duplicate registration must not be able to swap an agent's key.
+    expect(deps.store.getAgent('ws', 'agent:muse')?.publicKey).toBe(first.publicKey);
   });
 
   it('allows the same agent name in a different workspace', () => {

@@ -28,6 +28,10 @@ export const ERROR_CATALOG = {
     message: 'The idempotency key was reused with a different payload.',
   },
   not_found: { status: 404, message: 'No such resource in this workspace.' },
+  already_exists: {
+    status: 409,
+    message: 'A resource with that identity already exists in this workspace.',
+  },
   rate_limited: { status: 429, message: 'Rate limit exceeded for this agent.' },
   turn_cap_exceeded: { status: 429, message: 'Thread turn cap reached; the thread is paused.' },
 } as const satisfies Record<string, { status: number; message: string }>;

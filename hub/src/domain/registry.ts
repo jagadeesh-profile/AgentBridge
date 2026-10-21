@@ -24,7 +24,10 @@ export function registerAgent(
 
   return deps.store.transaction(() => {
     if (deps.store.getAgent(workspace, ref)) {
-      throw new AgentBridgeError('schema_invalid', `agent ${ref} already exists in ${workspace}`);
+      // A conflict, not a malformed request: the payload is fine, the name is
+      // taken. Returning 400 would tell the caller to fix a payload that has
+      // nothing wrong with it.
+      throw new AgentBridgeError('already_exists', `agent ${ref} already exists in ${workspace}`);
     }
 
     const agent: AgentRecord = {
