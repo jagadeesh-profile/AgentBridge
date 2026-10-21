@@ -42,7 +42,14 @@ export async function startHarness(workspace = 'ws_e2e'): Promise<Harness> {
   const ownerPub = await ed.getPublicKeyAsync(ownerPriv);
 
   const app = await buildApp(
-    { store, clock, ids, blob, ownerPublicKey: ownerPub },
+    {
+      store,
+      clock,
+      ids,
+      blob,
+      ownerPublicKey: ownerPub,
+      registrationToken: 'test-registration-token',
+    },
     { logger: false, rateLimitMax: 5000 },
   );
   await app.listen({ port: 0, host: '127.0.0.1' });

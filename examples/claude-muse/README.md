@@ -24,6 +24,7 @@ architectural decision you have to make up front.
 agentbridge keygen --out owner.key          # prints the owner public key
 export AGENTBRIDGE_OWNER_PUBLIC_KEY=<that value>
 export AGENTBRIDGE_WORKSPACE=ws_pilot
+export AGENTBRIDGE_REGISTRATION_TOKEN=$(openssl rand -hex 32)   # gates enrolment
 pnpm run dev                                # hub on :8080, in Docker
 ```
 

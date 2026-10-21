@@ -19,6 +19,8 @@ let lines: string[];
 let ownerKeyPath: string;
 let claudeKeyPath: string;
 
+const REG_TOKEN = 'test-registration-token';
+
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'ab-cli-'));
   deps = makeFakes();
@@ -50,7 +52,12 @@ beforeEach(async () => {
   }
 
   app = await buildApp(
-    { ...deps, clock: { now: () => new Date() }, ownerPublicKey: ownerPub },
+    {
+      ...deps,
+      clock: { now: () => new Date() },
+      ownerPublicKey: ownerPub,
+      registrationToken: 'test-registration-token',
+    },
     { logger: false, rateLimitMax: 5000 },
   );
   await app.listen({ port: 0, host: '127.0.0.1' });
@@ -118,19 +125,36 @@ describe('keygen', () => {
 
 describe('register', () => {
   it('registers an agent and reports its default scopes', async () => {
-    const out = await register(env, { name: 'newbie', key: claudeKeyPath });
+    const out = await register(env, {
+      name: 'newbie',
+      key: claudeKeyPath,
+      registrationToken: REG_TOKEN,
+    });
     expect(out.ref).toBe('agent:newbie');
     expect(lines.join('\n')).toContain('read, message');
   });
 
   it('returns a webhook secret only when a url is given', async () => {
-    expect((await register(env, { name: 'pull', key: claudeKeyPath })).webhookSecret).toBeNull();
+    expect(
+      (await register(env, { name: 'pull', key: claudeKeyPath, registrationToken: REG_TOKEN }))
+        .webhookSecret,
+    ).toBeNull();
     const pushy = await register(env, {
       name: 'pushy',
       key: claudeKeyPath,
       webhookUrl: 'https://p.example/hook',
+      registrationToken: REG_TOKEN,
     });
     expect(pushy.webhookSecret).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('register is gated', () => {
+  it('REFUSES to register without the right token', async () => {
+    await expect(
+      register(env, { name: 'intruder', key: claudeKeyPath, registrationToken: 'wrong' }),
+    ).rejects.toThrow(/401|unauthenticated/i);
+    expect(deps.store.getAgent('ws', 'agent:intruder')).toBeNull();
   });
 });
 

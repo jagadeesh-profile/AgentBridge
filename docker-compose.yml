@@ -7,6 +7,10 @@ services:
       # No default: a hub that accepted approvals against a placeholder owner
       # key would be worse than one that refuses to start.
       AGENTBRIDGE_OWNER_PUBLIC_KEY: ${AGENTBRIDGE_OWNER_PUBLIC_KEY:?run "agentbridge keygen --out owner.key" and put the printed public key here or in .env}
+      # Registration cannot be signature-authenticated (the agent has no key
+      # yet) and the workspace is a caller-supplied header, so enrolment is
+      # gated by a shared secret. No default: fail closed.
+      AGENTBRIDGE_REGISTRATION_TOKEN: ${AGENTBRIDGE_REGISTRATION_TOKEN:?set a long random value, e.g. openssl rand -hex 32}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DELIVERY_INTERVAL_MS: ${DELIVERY_INTERVAL_MS:-1000}
     volumes:

@@ -105,7 +105,12 @@ describe('tools against a real hub', () => {
       });
     }
     app = await buildApp(
-      { ...deps, clock: { now: () => new Date() }, ownerPublicKey: new Uint8Array(32) },
+      {
+        ...deps,
+        clock: { now: () => new Date() },
+        ownerPublicKey: new Uint8Array(32),
+        registrationToken: 'test-registration-token',
+      },
       { logger: false, rateLimitMax: 5000 },
     );
     await app.listen({ port: 0, host: '127.0.0.1' });

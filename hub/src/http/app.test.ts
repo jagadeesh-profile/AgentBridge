@@ -12,6 +12,8 @@ let deps: Fakes;
 let app: FastifyInstance;
 let clPriv: Uint8Array;
 
+const TEST_REGISTRATION_TOKEN = 'test-registration-token';
+
 async function signed(
   method: string,
   path: string,
@@ -61,7 +63,11 @@ beforeEach(async () => {
     scopes: ['read', 'message'],
   });
   app = await buildApp(
-    { ...deps, ownerPublicKey: new Uint8Array(32) },
+    {
+      ...deps,
+      ownerPublicKey: new Uint8Array(32),
+      registrationToken: TEST_REGISTRATION_TOKEN,
+    },
     { logger: false, rateLimitMax: 1000 },
   );
   await app.ready();
@@ -204,7 +210,7 @@ describe('happy path over HTTP', () => {
 describe('hostile payloads', () => {
   it('REJECTS a body over the size limit with 413 and keeps serving', async () => {
     const small = await buildApp(
-      { ...deps, ownerPublicKey: new Uint8Array(32) },
+      { ...deps, ownerPublicKey: new Uint8Array(32), registrationToken: TEST_REGISTRATION_TOKEN },
       { logger: false, bodyLimit: 1024, rateLimitMax: 1000 },
     );
     await small.ready();
@@ -283,7 +289,7 @@ describe('log redaction', () => {
 describe('rate limiting', () => {
   it('returns rate_limited once an agent exceeds its burst', async () => {
     const tight = await buildApp(
-      { ...deps, ownerPublicKey: new Uint8Array(32) },
+      { ...deps, ownerPublicKey: new Uint8Array(32), registrationToken: TEST_REGISTRATION_TOKEN },
       { logger: false, rateLimitMax: 2, rateLimitWindow: '1 minute' },
     );
     await tight.ready();
@@ -379,5 +385,83 @@ describe('trace propagation', () => {
     expect(rows.length).toBeGreaterThan(0);
     const msg = deps.store.getMessage('ws', rows[0]!.messageId);
     expect(msg?.traceId).toBe(trace);
+  });
+});
+
+// Final review finding: POST /v1/agents was wholly unauthenticated, and the
+// workspace is a caller-supplied header — so anyone who could reach the hub
+// could enrol an agent in someone else's workspace and start sending messages
+// to it with the default read+message scopes.
+describe('registration is gated', () => {
+  it('REJECTS a registration with no token', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/agents',
+      headers: { 'content-type': 'application/json', 'x-agentbridge-workspace': 'ws' },
+      payload: JSON.stringify({
+        name: 'intruder',
+        capabilities: { skills: [], input: [], output: [] },
+        public_key: 'AAAA',
+      }),
+    });
+    expect(res.statusCode).toBe(401);
+    expect(deps.store.getAgent('ws', 'agent:intruder')).toBeNull();
+  });
+
+  it('REJECTS a registration with the wrong token', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/agents',
+      headers: {
+        'content-type': 'application/json',
+        'x-agentbridge-workspace': 'ws',
+        'x-agentbridge-registration-token': 'not-the-token',
+      },
+      payload: JSON.stringify({
+        name: 'intruder',
+        capabilities: { skills: [], input: [], output: [] },
+        public_key: 'AAAA',
+      }),
+    });
+    expect(res.statusCode).toBe(401);
+    expect(deps.store.getAgent('ws', 'agent:intruder')).toBeNull();
+  });
+
+  it('accepts a registration bearing the right token', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/agents',
+      headers: {
+        'content-type': 'application/json',
+        'x-agentbridge-workspace': 'ws',
+        'x-agentbridge-registration-token': TEST_REGISTRATION_TOKEN,
+      },
+      payload: JSON.stringify({
+        name: 'invited',
+        capabilities: { skills: [], input: [], output: [] },
+        public_key: 'AAAA',
+      }),
+    });
+    expect(res.statusCode).toBe(201);
+    expect(deps.store.getAgent('ws', 'agent:invited')?.scopes).toEqual(['read', 'message']);
+  });
+
+  it('rejects a token of the right length but wrong content', async () => {
+    const wrong = 'x'.repeat(TEST_REGISTRATION_TOKEN.length);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/agents',
+      headers: {
+        'content-type': 'application/json',
+        'x-agentbridge-workspace': 'ws',
+        'x-agentbridge-registration-token': wrong,
+      },
+      payload: JSON.stringify({
+        name: 'intruder2',
+        capabilities: { skills: [], input: [], output: [] },
+        public_key: 'AAAA',
+      }),
+    });
+    expect(res.statusCode).toBe(401);
   });
 });

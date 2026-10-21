@@ -45,7 +45,14 @@ async function main(): Promise<void> {
   const ids: IdGen = { ulid: (prefix) => `${prefix}_${ulid()}` };
   const blob = openBlobStore(artifactDir);
 
-  const app = await buildApp({ store, clock, ids, blob, ownerPublicKey });
+  const app = await buildApp({
+    store,
+    clock,
+    ids,
+    blob,
+    ownerPublicKey,
+    registrationToken: required('AGENTBRIDGE_REGISTRATION_TOKEN'),
+  });
 
   // Phase 0 runs delivery in-process. DELIVERY_MODE=worker runs only the
   // worker; =api serves without one (spec §2.4).

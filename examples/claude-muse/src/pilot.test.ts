@@ -54,6 +54,7 @@ beforeEach(async () => {
       ...deps,
       clock: { now: () => new Date() },
       ownerPublicKey: await ed.getPublicKeyAsync(ownerPriv),
+      registrationToken: 'test-registration-token',
     },
     { logger: false, rateLimitMax: 5000 },
   );

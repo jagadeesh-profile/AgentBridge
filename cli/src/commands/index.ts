@@ -35,6 +35,7 @@ export async function register(
     scopes?: readonly string[] | undefined;
     webhookUrl?: string | undefined;
     skills?: readonly string[] | undefined;
+    registrationToken?: string | undefined;
   },
 ): Promise<{ ref: string; webhookSecret: string | null }> {
   const publicKey = publicKeyBase64(await ed.getPublicKeyAsync(await loadKey(opts.key)));
@@ -45,6 +46,10 @@ export async function register(
     headers: {
       'content-type': 'application/json',
       'x-agentbridge-workspace': env.workspace,
+      // Registration cannot be signature-authenticated: the agent has no
+      // registered key yet.
+      'x-agentbridge-registration-token':
+        opts.registrationToken ?? process.env.AGENTBRIDGE_REGISTRATION_TOKEN ?? '',
     },
     body: JSON.stringify({
       name: opts.name,

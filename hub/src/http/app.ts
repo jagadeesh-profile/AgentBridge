@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import rateLimit from '@fastify/rate-limit';
 import {
   AgentBridgeError,
@@ -33,6 +33,16 @@ export interface AppDeps {
   blob: BlobStore;
   /** The owner's Ed25519 public key, base64. Approvals verify against it. */
   ownerPublicKey: Uint8Array;
+  /**
+   * Required bearer for POST /v1/agents.
+   *
+   * Registration cannot be signature-authenticated � the agent has no
+   * registered key yet � and the workspace arrives as a caller-supplied
+   * header. Without this gate anyone who can reach the hub could enrol an
+   * agent in someone else's workspace and immediately send messages to it with
+   * the default read+message scopes. Not optional: fail closed.
+   */
+  registrationToken: string;
 }
 
 export interface AppOptions {
@@ -106,7 +116,10 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
   app.addHook('preHandler', async (req) => {
     if (!req.url.startsWith(AUTHENTICATED_PREFIX)) return;
     const path = req.url.split('?')[0] ?? req.url;
-    if (OPEN_PATHS.has(path) && req.method === 'POST') return;
+    if (OPEN_PATHS.has(path) && req.method === 'POST') {
+      requireRegistrationToken(req);
+      return;
+    }
 
     const bodyObj = (req.body ?? {}) as { idempotency_key?: unknown };
     const safeMethod = req.method === 'GET' || req.method === 'HEAD';
@@ -124,6 +137,19 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
       { allowReplay: safeMethod || hasIdempotencyKey },
     );
   });
+
+  /** Constant-time compare, length-checked first so a short token cannot throw. */
+  const requireRegistrationToken = (req: FastifyRequest): void => {
+    const presented = req.headers['x-agentbridge-registration-token'];
+    if (typeof presented !== 'string' || presented === '') {
+      throw new AgentBridgeError('unauthenticated', 'registration token required');
+    }
+    const a = Buffer.from(presented);
+    const b = Buffer.from(deps.registrationToken);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new AgentBridgeError('unauthenticated', 'registration token rejected');
+    }
+  };
 
   const requireAgent = (req: FastifyRequest): AgentRecord => {
     if (req.agent === undefined) throw new AgentBridgeError('unauthenticated');

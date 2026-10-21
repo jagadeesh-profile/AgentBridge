@@ -23,6 +23,7 @@ const USAGE = `agentbridge — AgentBridge owner CLI
 Environment:
   AGENTBRIDGE_URL        hub base url (default http://localhost:8080)
   AGENTBRIDGE_WORKSPACE  workspace id (required)
+  AGENTBRIDGE_REGISTRATION_TOKEN  required by the register command
 `;
 
 function env(): Env {
@@ -98,6 +99,9 @@ async function main(argv: string[]): Promise<void> {
         ...(list(values.scopes) === undefined ? {} : { scopes: list(values.scopes) }),
         ...(values['webhook-url'] === undefined ? {} : { webhookUrl: values['webhook-url'] }),
         ...(list(values.skills) === undefined ? {} : { skills: list(values.skills) }),
+        ...(process.env.AGENTBRIDGE_REGISTRATION_TOKEN === undefined
+          ? {}
+          : { registrationToken: process.env.AGENTBRIDGE_REGISTRATION_TOKEN }),
       });
       return;
 
