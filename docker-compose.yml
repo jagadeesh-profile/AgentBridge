@@ -1,0 +1,17 @@
+services:
+  hub:
+    build: .
+    ports:
+      - '8080:8080'
+    environment:
+      # No default: a hub that accepted approvals against a placeholder owner
+      # key would be worse than one that refuses to start.
+      AGENTBRIDGE_OWNER_PUBLIC_KEY: ${AGENTBRIDGE_OWNER_PUBLIC_KEY:?run "agentbridge keygen --out owner.key" and put the printed public key here or in .env}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DELIVERY_INTERVAL_MS: ${DELIVERY_INTERVAL_MS:-1000}
+    volumes:
+      - agentbridge-data:/data
+    restart: unless-stopped
+
+volumes:
+  agentbridge-data:

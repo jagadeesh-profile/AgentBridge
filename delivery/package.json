@@ -17,6 +17,10 @@
   },
   "dependencies": {
     "@agentbridge/contracts": "workspace:*",
-    "@agentbridge/hub": "workspace:*"
+    "@agentbridge/hub": "workspace:*",
+    "ulid": "2.4.0"
+  },
+  "bin": {
+    "agentbridge-hub": "./dist/main.js"
   }
 }

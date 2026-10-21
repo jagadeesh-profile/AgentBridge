@@ -24,6 +24,7 @@ import { authenticate } from './auth.js';
 import { assertDepth, registerErrorHandler } from './errors.js';
 import { withIdempotency } from './idempotency.js';
 import { loggerOptions } from './logger.js';
+import { resolveTraceId } from '../telemetry.js';
 
 export interface AppDeps {
   store: Store;
@@ -45,6 +46,7 @@ declare module 'fastify' {
   interface FastifyRequest {
     agent?: AgentRecord;
     rawBodyText?: string;
+    traceId?: string;
   }
 }
 
@@ -91,6 +93,14 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
     // No errorResponseBuilder: the plugin's 429 is normalized into the standard
     // { error: { code, message, trace_id } } shape by the single error handler,
     // so there is still exactly one place that builds an error body (spec �6).
+  });
+
+  // Adopt the caller's trace id when it is well-formed, so one trace spans both
+  // agents (spec �8). A malformed id is replaced, never stored.
+  app.addHook('onRequest', async (req) => {
+    const { traceId, rejected } = resolveTraceId(req.headers['x-agentbridge-trace-id']);
+    req.traceId = traceId;
+    if (rejected) req.log.warn({ trace_id: traceId }, 'discarded a malformed inbound trace id');
   });
 
   app.addHook('preHandler', async (req) => {
@@ -160,7 +170,7 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
       agent.ref,
       parsed.idempotency_key,
       payloadHash(parsed),
-      () => postMessage(deps, agent, parsed),
+      () => postMessage(deps, agent, { ...parsed, trace_id: req.traceId }),
     );
     void reply.status(202);
     return out;
@@ -175,7 +185,7 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
       agent.ref,
       parsed.idempotency_key,
       payloadHash(parsed),
-      () => createTask(deps, agent, parsed),
+      () => createTask(deps, agent, { ...parsed, trace_id: req.traceId }),
     );
     void reply.status(201);
     return out;
@@ -200,6 +210,7 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
       () =>
         updateTask(deps, agent, req.params.id, parsed.state, {
           ...(parsed.note === undefined ? {} : { note: parsed.note }),
+          ...(req.traceId === undefined ? {} : { traceId: req.traceId }),
         }),
     );
   });
@@ -207,7 +218,9 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
   app.delete<{ Params: { id: string } }>('/v1/tasks/:id', async (req) => {
     const ws = workspaceOf(req);
     requireAgent(req);
-    return cancelTaskAsOwner(deps, ws, req.params.id);
+    return cancelTaskAsOwner(deps, ws, req.params.id, {
+      ...(req.traceId === undefined ? {} : { traceId: req.traceId }),
+    });
   });
 
   app.post('/v1/artifacts', async (req, reply) => {
@@ -219,7 +232,7 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
       agent.ref,
       parsed.idempotency_key,
       payloadHash(parsed),
-      () => putArtifact(deps, agent, parsed),
+      () => putArtifact(deps, agent, { ...parsed, trace_id: req.traceId }),
     );
     void reply.status(201);
     return out;
@@ -228,7 +241,10 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
   app.post('/v1/approvals', async (req) => {
     const ws = workspaceOf(req);
     const parsed = ApprovalDecisionRequest.parse(req.body);
-    return decideApproval(deps, deps.ownerPublicKey, ws, parsed);
+    return decideApproval(deps, deps.ownerPublicKey, ws, {
+      ...parsed,
+      ...(req.traceId === undefined ? {} : { trace_id: req.traceId }),
+    });
   });
 
   app.get('/v1/inbox', async (req) => {

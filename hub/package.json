@@ -6,7 +6,8 @@
     ".": "./dist/index.js",
     "./ports": "./dist/ports/index.js",
     "./ports/fakes": "./dist/ports/fakes/index.js",
-    "./http": "./dist/http/app.js"
+    "./http": "./dist/http/app.js",
+    "./adapters": "./dist/adapters/index.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,6 +24,7 @@
     "@fastify/rate-limit": "^11.2.1",
     "fastify": "^5.12.7",
     "pino": "^10.4.0",
+    "ulid": "2.4.0",
     "zod": "3.25.76"
   },
   "devDependencies": {

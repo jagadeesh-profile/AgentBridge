@@ -299,3 +299,85 @@ describe('rate limiting', () => {
     }
   });
 });
+
+// Task 19: the trace id must reach the stored message, replacing the
+// UNSET_TRACE_ID placeholder the domain used before this was wired.
+describe('trace propagation', () => {
+  it('carries an inbound trace id through to the stored message', async () => {
+    const trace = '4bf92f3577b34da6a3ce929d0e0e4736';
+    const req = await signed('POST', '/v1/messages', {
+      thread: 'thr_1',
+      to: ['agent:muse'],
+      body: { text: 'hi' },
+      side_effect: false,
+      idempotency_key: 'm-trace',
+    });
+    const res = await app.inject({
+      ...req,
+      headers: { ...req.headers, 'x-agentbridge-trace-id': trace },
+    });
+    expect(res.statusCode).toBe(202);
+    const { id } = res.json() as { id: string };
+    expect(deps.store.getMessage('ws', id)?.traceId).toBe(trace);
+  });
+
+  it('generates a trace id when the caller sends none, never the placeholder', async () => {
+    const res = await app.inject(
+      await signed('POST', '/v1/messages', {
+        thread: 'thr_1',
+        to: ['agent:muse'],
+        body: { text: 'hi' },
+        side_effect: false,
+        idempotency_key: 'm-notrace',
+      }),
+    );
+    const { id } = res.json() as { id: string };
+    const stored = deps.store.getMessage('ws', id)?.traceId;
+    expect(stored).toMatch(/^[0-9a-f]{32}$/);
+    expect(stored).not.toBe('0'.repeat(32));
+  });
+
+  it('replaces a malformed inbound trace id rather than storing it', async () => {
+    const req = await signed('POST', '/v1/messages', {
+      thread: 'thr_1',
+      to: ['agent:muse'],
+      body: { text: 'hi' },
+      side_effect: false,
+      idempotency_key: 'm-badtrace',
+    });
+    const res = await app.inject({
+      ...req,
+      headers: { ...req.headers, 'x-agentbridge-trace-id': '../../etc/passwd' },
+    });
+    const { id } = res.json() as { id: string };
+    expect(deps.store.getMessage('ws', id)?.traceId).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it('puts a trace_id in every error body', async () => {
+    const res = await app.inject(await signed('POST', '/v1/tasks', { thread: 'thr_1' }));
+    expect((res.json() as { error: { trace_id: string } }).error.trace_id).toMatch(
+      /^[0-9a-f]{32}$/,
+    );
+  });
+
+  it('carries the task trace id into the notification to the assignee', async () => {
+    const trace = 'aaaaaaaabbbbbbbbccccccccdddddddd';
+    const req = await signed('POST', '/v1/tasks', {
+      thread: 'thr_1',
+      assignee: 'agent:muse',
+      title: 't',
+      payload: {},
+      side_effect: false,
+      idempotency_key: 'tsk-trace',
+    });
+    const res = await app.inject({
+      ...req,
+      headers: { ...req.headers, 'x-agentbridge-trace-id': trace },
+    });
+    expect(res.statusCode).toBe(201);
+    const rows = deps.store.listInbox('ws', 'agent:muse', null, 10);
+    expect(rows.length).toBeGreaterThan(0);
+    const msg = deps.store.getMessage('ws', rows[0]!.messageId);
+    expect(msg?.traceId).toBe(trace);
+  });
+});

@@ -51,7 +51,7 @@ function body(code: ErrorCode | 'internal', traceId: string, message?: string): 
 export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler(
     (err: FastifyError | Error, req: FastifyRequest, reply: FastifyReply): void => {
-      const traceId = String(req.id);
+      const traceId = req.traceId ?? String(req.id);
 
       if (err instanceof AgentBridgeError) {
         req.log.warn({ code: err.code, trace_id: traceId, detail: err.detail }, 'request rejected');

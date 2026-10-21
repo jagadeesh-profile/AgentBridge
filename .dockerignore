@@ -1,0 +1,21 @@
+node_modules
+**/node_modules
+**/dist
+
+# Critical: tsbuildinfo must be excluded alongside dist. Copying it in while
+# excluding dist makes `tsc -b` believe every project is already built, so the
+# build becomes a silent no-op and the image ships with no compiled output.
+*.tsbuildinfo
+**/*.tsbuildinfo
+.git
+.github
+.superpowers
+data
+docs
+*.md
+!sdk/typescript/README.md
+!adapters/mcp/README.md
+.env
+*.key
+*.sqlite*
+coverage
