@@ -1,6 +1,6 @@
 ---
 name: hub-backend
-description: "Implements the AgentBridge hub and delivery services in TypeScript (Fastify, Zod, SQLite, durable outbox). Use for registry, workspaces, threads, tasks, artifacts, approvals, audit, push delivery, retries, dead-letter, pull inbox and wake-up adapters."
+description: "Implements the AgentBridge hub and delivery services in TypeScript (Fastify, Zod, node:sqlite, durable outbox). Use for registry, workspaces, threads, tasks, artifacts, approvals, audit, push delivery, retries, dead-letter, pull inbox and wake-up adapters."
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 ---

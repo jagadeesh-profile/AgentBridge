@@ -18,7 +18,7 @@ Every agent, the lead included, enforces these. A change that weakens one needs 
 2. **Every message is signed by its agent.** Ed25519 per agent and verified on receipt. Agents never post as a human account.
 3. **Side effects stop at the approval gate.** Any task or call with `side_effect: true` waits in `needs-approval` until the owner signs an approval bound to the exact payload hash.
 4. **At-least-once delivery, exactly-once effect.** Every write accepts an `idempotency_key`; consumers dedupe on it.
-5. **Ordering is guaranteed per thread, not across threads.** SQS FIFO with `MessageGroupId = thread_id`.
+5. **Ordering is guaranteed per thread, not across threads.** Phase 0: a durable SQLite outbox plus a scheduler that claims the oldest live row of a thread only when nothing is inflight on it. Phase 1: SQS FIFO with `MessageGroupId = thread_id`. Same semantics, different mechanism.
 6. **The hub stores no secrets.** No model API keys, no tool credentials. Outbound content is scanned and redacted for tokens and card numbers.
 7. **No LLM calls inside the hub in v1.** The hub routes, stores and governs. It does not think.
 8. **Least privilege by default.** New agents get `read` + `message` only. Other scopes are granted explicitly.
@@ -55,13 +55,13 @@ Unit tests live next to the code they test and belong to that code's owner.
 
 **TypeScript everywhere.** There is no Python in Phase 0.
 
-- **Node 22 + TypeScript 5** (`strict`), `pnpm` workspaces
-- **Hub:** Fastify, Zod, `better-sqlite3`, `@noble/ed25519`, `ulid`, `pino`
+- **Node 24 + TypeScript 5** (`strict`), `pnpm` workspaces (`engines` allows >=22; the image pins 24)
+- **Hub:** Fastify, Zod, `node:sqlite` (built in — see ADR 0003), `@noble/ed25519`, `ulid`, `pino`
 - **MCP:** `@modelcontextprotocol/sdk` — the MCP server is a stdio bin and a thin REST client of the hub
 - **SDK:** `tsup` for `sdk/typescript`; **Console:** Next.js (next pass)
 - **Contracts:** Zod schemas are the source of truth; JSON Schema and `openapi.yaml` are generated into `contracts/generated/` and drift-checked
-- **Observability:** OpenTelemetry traces with `trace_id` carried in the envelope across agents
-- **Phase 0 runtime:** one Node container — SQLite for state, a durable SQLite outbox plus an in-process scheduler keyed by `thread_id` for ordering, local filesystem for artifacts. All six ports (`Store`, `Queue`, `BlobStore`, `Clock`, `IdGen`, `Signer`) are interfaces; DynamoDB, SQS FIFO, S3 and KMS drop in at Phase 1 as one new file each.
+- **Observability:** `trace_id` carried in the envelope across agents, adopted from the caller when well-formed. The OTel **exporter** is not wired yet (see `docs/TASKS.md`).
+- **Phase 0 runtime:** one Node container — `node:sqlite` for state, a durable SQLite outbox plus an in-process scheduler keyed by `thread_id` for ordering, local filesystem for artifacts. All six ports (`Store`, `Queue`, `BlobStore`, `Clock`, `IdGen`, `Signer`) are interfaces; DynamoDB, SQS FIFO, S3 and KMS drop in at Phase 1 as one new file each.
 
 ```bash
 make setup          # pnpm install + pre-commit install
@@ -69,7 +69,8 @@ make dev            # docker compose up (hub container + volume for SQLite and a
 make contracts      # regenerate contracts/generated (fails if generated code drifts)
 make lint           # eslint, prettier --check, tsc --noEmit
 make test           # unit tests, all packages (vitest)
-make test-e2e       # e2e against the running stack
+make test-e2e       # e2e against a real in-process hub (SQLite on disk, worker)
+make test-container # the real Docker image, driven over HTTP only
 make conformance    # MCP conformance suite (A2A is Phase 1)
 make check          # lint + test + contracts — must pass before any handoff
 ```
@@ -77,6 +78,11 @@ make check          # lint + test + contracts — must pass before any handoff
 Run commands from the repo root. Never run `cdk deploy`, a destructive migration or anything that touches a real AWS account without human approval.
 
 The Phase 0 design spec is [`docs/superpowers/specs/2026-10-20-agentbridge-phase0-typescript-design.md`](docs/superpowers/specs/2026-10-20-agentbridge-phase0-typescript-design.md). Read it before implementing.
+
+Task status and the record of what shipped: [`docs/TASKS.md`](docs/TASKS.md).
+Architecture decisions: [`docs/adr/`](docs/adr/) — 0001 TypeScript and
+ports-and-adapters, 0002 signature-only auth, 0003 `node:sqlite`, 0004 gated
+registration.
 
 ---
 
@@ -164,7 +170,7 @@ infra: pnpm workspace + Dockerfile + compose + CI (parallel) ──────�
 - [ ] Contracts unchanged, or changed through `architect` with a version bump and regenerated SDK models
 - [ ] Invariants in §1 hold; `security-reviewer` signed off when required
 - [ ] Spans and structured logs on new paths; no message bodies or secrets in logs
-- [ ] Docs, ADR and this file updated if behavior or structure changed
+- [ ] Docs, ADR (`docs/adr/`), `docs/TASKS.md` and this file updated if behavior or structure changed
 
 ---
 

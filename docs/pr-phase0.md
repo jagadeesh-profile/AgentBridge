@@ -115,6 +115,12 @@ out of `make check` and out of CI — a build-plus-boot is minutes, not seconds.
 > pair of eyes on the approval gate, the signing path and the delivery scheduler
 > is the one thing this branch has not had.
 
+Decisions are recorded as ADRs in [`docs/adr/`](docs/adr/) — including the two
+the build itself produced (`node:sqlite` over `better-sqlite3`, and the
+registration gate). [`docs/TASKS.md`](docs/TASKS.md) carries per-task status,
+the fourteen defects TDD caught in the plan, and the verification debt this
+branch is carrying.
+
 ## Known follow-ups
 
 - `withIdempotency` coalescing is per-process; Phase 1 needs a durable
@@ -122,8 +128,6 @@ out of `make check` and out of CI — a build-plus-boot is minutes, not seconds.
 - OpenTelemetry **exporter** is not wired. `trace_id` propagation is — it is
   adopted from the caller and carried in the envelope so one trace spans both
   agents — but spans are not exported.
-- `docs/TASKS.md` and the two ADRs named in the plan's post-plan section are not
-  written.
 
 ## Phase 0 exit gate
 

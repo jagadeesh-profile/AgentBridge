@@ -193,7 +193,7 @@ The hub is built ports-and-adapters: the domain talks only to `Store`, `Queue`, 
 | Concern | Phase 0 (prototype, local + Docker) | Phase 1 target (AWS) |
 | --- | --- | --- |
 | Compute | one Node container, `docker compose up` | ECS Fargate for API and delivery workers |
-| State (threads, tasks, approvals, audit) | SQLite (`better-sqlite3`) | DynamoDB single-table |
+| State (threads, tasks, approvals, audit) | SQLite via Node's built-in `node:sqlite` | DynamoDB single-table |
 | Ordering | durable SQLite outbox + in-process scheduler keyed by `thread_id` | SQS FIFO, `MessageGroupId = thread_id` |
 | Artifacts | local filesystem | S3 |
 | Retries and wake-ups | in-process worker, backoff + jitter, 24 h, then DLQ row | EventBridge + Lambda |

@@ -109,7 +109,8 @@ export interface IdempotencyHit {
  * The hub's whole persistence surface. Every method is scoped by `workspace`,
  * so a cross-workspace read is not expressible (FR-2).
  *
- * `transaction` is synchronous because better-sqlite3 is. That is what lets the
+ * `transaction` is synchronous because `node:sqlite`'s DatabaseSync is (ADR
+ * 0003). That is what lets the
  * task row, the audit row and the outbox row be written atomically with no
  * async interleaving (spec §3 step 4).
  */

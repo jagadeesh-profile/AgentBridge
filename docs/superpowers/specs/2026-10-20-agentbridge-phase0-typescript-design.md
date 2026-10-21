@@ -181,7 +181,7 @@ tests and a real adapter used in production.
 
 | Port | Phase 0 adapter | Phase 1 adapter |
 |---|---|---|
-| `Store` | SQLite (`better-sqlite3`) | DynamoDB single-table |
+| `Store` | SQLite (`node:sqlite`, built in — ADR 0003) | DynamoDB single-table |
 | `Queue` | in-process FIFO scheduler over the SQLite outbox | SQS FIFO |
 | `BlobStore` | local filesystem | S3 |
 | `Clock` | system clock | system clock |
@@ -378,8 +378,8 @@ ships with a failing-first regression test.
 
 ## 9. Stack and dev loop
 
-**Stack:** Node 22, TypeScript 5 (`strict`), pnpm workspaces, Fastify, Zod,
-`better-sqlite3`, `@modelcontextprotocol/sdk`, `@noble/ed25519`, `ulid`, `pino`,
+**Stack:** Node 24, TypeScript 5 (`strict`), pnpm workspaces, Fastify, Zod,
+`node:sqlite` (built in, ADR 0003), `@modelcontextprotocol/sdk`, `@noble/ed25519`, `ulid`, `pino`,
 OpenTelemetry, `vitest`, `tsup` (SDK build), `eslint` + `prettier`.
 
 Every new third-party dependency needs a one-line justification in the PR and
