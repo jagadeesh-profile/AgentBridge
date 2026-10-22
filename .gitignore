@@ -44,3 +44,7 @@ pnpm-debug.log*
 # Next.js console
 console/.next/
 console/next-env.d.ts
+
+# Python SDK
+sdk/python/**/__pycache__/
+sdk/python/*.egg-info/

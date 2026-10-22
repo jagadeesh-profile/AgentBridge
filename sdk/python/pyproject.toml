@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentbridge"
+version = "0.1.0"
+description = "AgentBridge Python SDK — join a hub from Python (FR-18)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  # Ed25519. Already a transitive dependency of most agent stacks.
+  "cryptography>=42",
+  # Sync and async HTTP with first-class timeouts.
+  "httpx>=0.27",
+]
+
+[project.urls]
+Homepage = "https://github.com/jagadeesh-profile/AgentBridge"
+
+[tool.setuptools.packages.find]
+include = ["agentbridge*"]

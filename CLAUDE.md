@@ -40,7 +40,7 @@ Each path has exactly one owning subagent. Only the owner edits it; anyone may r
 | `adapters/a2a/` | A2A v1.0 protocol translation — card, JSON-RPC envelope, state mapping. The *routes* live in `hub/src/http/a2a.ts` (ADR 0007). Streaming and push are not supported | `protocol-adapters` |
 | `adapters/webhook/` | HMAC-signed outbound webhooks, REST inbound | `protocol-adapters` |
 | `sdk/typescript/` | Client SDK, `onTask` handlers, types inferred from `contracts/` | `sdk` |
-| `sdk/python/` | Python SDK at parity — **P1 (FR-18), not built in Phase 0** | `sdk` |
+| `sdk/python/` | Python SDK (FR-18). Canonicalization and signing verified byte-identical to TypeScript via generated vectors; owner operations and async are not ported | `sdk` |
 | `console/` | Owner console. Next.js; approvals, task board, kill switch and audit viewer shipped. The owner key is loaded per session and held in the browser only (ADR 0006) | `console` |
 | `Dockerfile`, `docker-compose.yml`, `.github/` | Phase 0: hub container, local stack, CI | `infra` |
 | `infra/` | AWS CDK (ECS Fargate, SQS FIFO, DynamoDB, S3, EventBridge, Lambda, KMS) — **Phase 1** | `infra` |
@@ -53,7 +53,7 @@ Unit tests live next to the code they test and belong to that code's owner.
 
 ## 3. Stack and commands
 
-**TypeScript everywhere.** There is no Python in Phase 0.
+**TypeScript everywhere in the hub and its surfaces.** The only Python is `sdk/python` (FR-18), which agents import; nothing in the hub depends on it.
 
 - **Node 24 + TypeScript 5** (`strict`), `pnpm` workspaces (`engines` allows >=22; the image pins 24)
 - **Hub:** Fastify, Zod, `node:sqlite` (built in — see ADR 0003), `@noble/ed25519`, `ulid`, `pino`
@@ -72,6 +72,7 @@ make test           # unit tests, all packages (vitest)
 make test-e2e       # e2e against a real in-process hub (SQLite on disk, worker)
 make test-container # the real Docker image, driven over HTTP only
 make conformance    # MCP conformance suite (A2A coverage is in hub/src/http/a2a.test.ts)
+make test-python    # Python SDK: cross-language vectors + a real hub. Needs python3; not in `make check`
 make check          # lint + test + contracts — must pass before any handoff
 ```
 

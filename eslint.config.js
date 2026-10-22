@@ -48,7 +48,13 @@ export default tseslint.config(
     // Build and tooling scripts run under Node directly, outside any tsconfig.
     files: ['**/*.mjs', 'scripts/**/*.js'],
     languageOptions: {
-      globals: { process: 'readonly', console: 'readonly' },
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        Buffer: 'readonly',
+        TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
+      },
     },
   },
 );

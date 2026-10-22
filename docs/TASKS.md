@@ -109,7 +109,8 @@ see "Verification debt".
 | A2A conformance suite | ⬜ coverage is in `hub/src/http/a2a.test.ts`; a real suite should run against the published spec |
 | `infra/` AWS CDK | ⬜ not started — writing infrastructure that `CLAUDE.md` §7 forbids deploying would ship untested code |
 | Phase 1 port adapters (DynamoDB, SQS FIFO, S3, KMS) | ⬜ the ports exist; each is one new file |
-| Python SDK (FR-18) | ⬜ |
+| **Python SDK (FR-18)** | ✅ canonicalization, signing, client, pull-inbox handler; byte-identical to TS by generated vectors |
+| Python SDK — async, webhook receiver, OwnerClient | ⬜ not ported; no Python agent needs owner operations |
 | OAuth 2.1 / mTLS | ⬜ ADR 0002 defers these here |
 | `withIdempotency` durable reservation | ⬜ needed once delivery splits into its own process |
 
