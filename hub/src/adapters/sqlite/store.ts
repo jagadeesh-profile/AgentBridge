@@ -281,6 +281,30 @@ export function openStore(path: string): SqliteStore {
       );
     },
 
+    putPushConfig(row) {
+      db.prepare(
+        `INSERT INTO a2a_push (workspace, task, agent_ref, url, token, created_at)
+         VALUES (?,?,?,?,?,?)
+         ON CONFLICT (workspace, task) DO UPDATE SET
+           agent_ref=excluded.agent_ref, url=excluded.url, token=excluded.token`,
+      ).run(row.workspace, row.task, row.agentRef, row.url, row.token, row.createdAt);
+    },
+    getPushConfig(workspace, task) {
+      const r = db
+        .prepare('SELECT * FROM a2a_push WHERE workspace=? AND task=?')
+        .get(workspace, task);
+      if (!r) return null;
+      const row = r as Row;
+      return {
+        workspace: str(row.workspace),
+        task: str(row.task),
+        agentRef: str(row.agent_ref),
+        url: str(row.url),
+        token: nullableStr(row.token),
+        createdAt: str(row.created_at),
+      };
+    },
+
     putArtifact(a: ArtifactRecord): void {
       db.prepare(
         `INSERT INTO artifacts (workspace, id, task, version, kind, name, content_type,

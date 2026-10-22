@@ -197,3 +197,87 @@ describe('worker', () => {
     worker.stop();
   });
 });
+
+describe('A2A push notifications', () => {
+  function configurePush(token: string | null = 'tok') {
+    deps.store.putTask({
+      id: 'tsk_1',
+      workspace: 'ws',
+      thread: 'thr_1',
+      creator: 'agent:muse',
+      assignee: 'agent:claude',
+      title: 'a2a task',
+      payload: { secret: 'do-not-ship-this' },
+      payloadHash: 'f'.repeat(64),
+      state: 'working',
+      sideEffect: false,
+      dueAt: null,
+      createdAt: '2026-10-20T12:00:00.000Z',
+      updatedAt: '2026-10-20T12:30:00.000Z',
+    });
+    deps.store.putPushConfig({
+      workspace: 'ws',
+      task: 'tsk_1',
+      agentRef: 'agent:muse',
+      url: `${url.replace('/hook', '')}/a2a/callback`,
+      token,
+      createdAt: '2026-10-20T12:00:00.000Z',
+    });
+  }
+
+  it('sends the A2A task shape to the configured url', async () => {
+    configurePush();
+    expect(await pushOnce(deps, enqueue())).toBe('acked');
+    const body = JSON.parse(received[0]?.body ?? '{}') as Record<string, unknown>;
+    expect(body.kind).toBe('task');
+    expect(body.id).toBe('tsk_1');
+    expect((body.status as { state: string }).state).toBe('working');
+  });
+
+  it('carries the caller token so the receiver can authenticate the callback', async () => {
+    configurePush('s3cret-token');
+    await pushOnce(deps, enqueue());
+    expect(received[0]?.headers['x-a2a-notification-token']).toBe('s3cret-token');
+  });
+
+  it('still HMAC-signs the notification', async () => {
+    // Same secret the agent already holds: the destination is its own origin.
+    configurePush();
+    await pushOnce(deps, enqueue());
+    expect(received[0]?.headers['x-agentbridge-signature']).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('does NOT ship the task payload in the notification', async () => {
+    // A state change is the notification; detail comes from tasks/get over an
+    // authenticated channel. Shipping the payload would put it on a second
+    // wire for no gain.
+    configurePush();
+    await pushOnce(deps, enqueue());
+    expect(received[0]?.body).not.toContain('do-not-ship-this');
+  });
+
+  it('ignores a config belonging to a DIFFERENT agent', async () => {
+    // The config is keyed by task; without the recipient check, one party's
+    // push URL would receive the other party's notifications.
+    configurePush();
+    deps.store.putPushConfig({
+      workspace: 'ws',
+      task: 'tsk_1',
+      agentRef: 'agent:someone-else',
+      url: 'https://elsewhere.example/cb',
+      token: null,
+      createdAt: '2026-10-20T12:00:00.000Z',
+    });
+    expect(await pushOnce(deps, enqueue())).toBe('acked');
+    // Delivered to the ordinary webhook, not to the other agent's URL.
+    const body = JSON.parse(received[0]?.body ?? '{}') as Record<string, unknown>;
+    expect(body.kind).toBeUndefined();
+  });
+
+  it('falls back to the ordinary webhook when no push is configured', async () => {
+    expect(await pushOnce(deps, enqueue())).toBe('acked');
+    const body = JSON.parse(received[0]?.body ?? '{}') as Record<string, unknown>;
+    expect(body.kind).toBeUndefined();
+    expect(body.body).toBeDefined();
+  });
+});

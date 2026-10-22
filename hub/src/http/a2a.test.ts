@@ -80,12 +80,10 @@ describe('the agent card', () => {
     }
   });
 
-  it('declares streaming and push as unsupported rather than advertising them', async () => {
-    // A caller that believes `streaming: true` and gets a non-stream has no
-    // recourse; one that reads false polls tasks/get, which works.
+  it('declares streaming unsupported rather than advertising and stubbing it', async () => {
     const card = (await app.inject({ method: 'GET', url: '/.well-known/agent.json' })).json();
     expect(card.capabilities.streaming).toBe(false);
-    expect(card.capabilities.pushNotifications).toBe(false);
+    expect(card.capabilities.pushNotifications).toBe(true);
   });
 });
 
@@ -224,6 +222,114 @@ describe('tasks/get and tasks/cancel', () => {
   });
 });
 
+describe('push notification config', () => {
+  /** Re-registers claude with a webhook, so it has an authorised origin. */
+  async function withWebhook(url: string | null) {
+    const current = deps.store.getAgent('ws', 'agent:claude');
+    deps.store.putAgent({
+      ...(current as NonNullable<typeof current>),
+      webhookUrl: url,
+      webhookSecret: url === null ? null : 'x'.repeat(64),
+    });
+  }
+
+  async function create() {
+    const res = await app.inject(await rpc('message/send', send()));
+    return res.json().result.id as string;
+  }
+
+  it('accepts a url on the origin the OWNER authorised at enrolment', async () => {
+    await withWebhook('https://remote.example/hook');
+    const id = await create();
+    const res = await app.inject(
+      await rpc('tasks/pushNotificationConfig/set', {
+        taskId: id,
+        pushNotificationConfig: { url: 'https://remote.example/a2a/callback', token: 's3cret' },
+      }),
+    );
+    expect(res.json().result.taskId).toBe(id);
+    expect(deps.store.getPushConfig('ws', id)?.url).toBe('https://remote.example/a2a/callback');
+  });
+
+  it('REFUSES a different origin — this is the SSRF guard', async () => {
+    // Without it, an endpoint where the caller names a URL the hub will POST
+    // to is an SSRF primitive: metadata services, internal hosts, anything
+    // the hub can reach.
+    await withWebhook('https://remote.example/hook');
+    const id = await create();
+    for (const evil of [
+      'http://169.254.169.254/latest/meta-data/',
+      'http://localhost:8080/v1/agents',
+      'https://attacker.example/collect',
+      'https://remote.example.attacker.test/hook',
+    ]) {
+      const res = await app.inject(
+        await rpc('tasks/pushNotificationConfig/set', {
+          taskId: id,
+          pushNotificationConfig: { url: evil },
+        }),
+      );
+      expect(res.json().error.code, evil).toBe(-32602);
+      expect(deps.store.getPushConfig('ws', id), evil).toBeNull();
+    }
+  });
+
+  it('REFUSES push entirely for an agent with no registered webhook', async () => {
+    // No registered webhook means no owner-authorised origin, so there is
+    // nowhere it is safe to send. Pull is the answer for those agents.
+    await withWebhook(null);
+    const id = await create();
+    const res = await app.inject(
+      await rpc('tasks/pushNotificationConfig/set', {
+        taskId: id,
+        pushNotificationConfig: { url: 'https://anywhere.example/hook' },
+      }),
+    );
+    expect(res.json().error.code).toBe(-32004);
+  });
+
+  it('REFUSES to configure push on someone else task', async () => {
+    await withWebhook('https://remote.example/hook');
+    deps.store.putTask({
+      id: 'tsk_other',
+      workspace: 'ws',
+      thread: 'thr_x',
+      creator: 'agent:muse',
+      assignee: 'agent:muse',
+      title: 'not yours',
+      payload: {},
+      payloadHash: 'f'.repeat(64),
+      state: 'working',
+      sideEffect: false,
+      dueAt: null,
+      createdAt: '2026-10-20T12:00:00.000Z',
+      updatedAt: '2026-10-20T12:00:00.000Z',
+    });
+    const res = await app.inject(
+      await rpc('tasks/pushNotificationConfig/set', {
+        taskId: 'tsk_other',
+        pushNotificationConfig: { url: 'https://remote.example/hook' },
+      }),
+    );
+    expect(res.json().error.code).toBe(-32001);
+  });
+
+  it('never echoes the token back on get', async () => {
+    // Otherwise a read turns into a way to recover a secret from a task id.
+    await withWebhook('https://remote.example/hook');
+    const id = await create();
+    await app.inject(
+      await rpc('tasks/pushNotificationConfig/set', {
+        taskId: id,
+        pushNotificationConfig: { url: 'https://remote.example/cb', token: 'do-not-leak' },
+      }),
+    );
+    const res = await app.inject(await rpc('tasks/pushNotificationConfig/get', { taskId: id }));
+    expect(res.body).not.toContain('do-not-leak');
+    expect(res.json().result.pushNotificationConfig.url).toBe('https://remote.example/cb');
+  });
+});
+
 describe('JSON-RPC conformance', () => {
   it('answers an unknown method with -32601', async () => {
     expect((await app.inject(await rpc('nope/nope'))).json().error.code).toBe(-32601);
@@ -233,11 +339,6 @@ describe('JSON-RPC conformance', () => {
     const res = await app.inject(await rpc('message/stream', send()));
     expect(res.json().error.code).toBe(-32004);
     expect(res.json().error.message).toMatch(/streaming/i);
-  });
-
-  it('declines push notification config as unsupported', async () => {
-    const res = await app.inject(await rpc('tasks/pushNotificationConfig/set', { id: 'x' }));
-    expect(res.json().error.code).toBe(-32003);
   });
 
   it('echoes the request id even when the envelope is malformed', async () => {

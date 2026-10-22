@@ -37,7 +37,7 @@ Each path has exactly one owning subagent. Only the owner edits it; anyone may r
 | `hub/` | Fastify service: registry, workspaces, threads, tasks, artifacts, approvals, audit. Ports in `src/ports/`, domain in `src/domain/`, routes in `src/http/`, SQLite and filesystem adapters in `src/adapters/` | `hub-backend` |
 | `delivery/` | Push workers, retries, dead-letter, pull inbox, wake-up adapters | `hub-backend` |
 | `adapters/mcp/` | AgentBridge MCP server (tools + notifications) | `protocol-adapters` |
-| `adapters/a2a/` | A2A v1.0 protocol translation — card, JSON-RPC envelope, state mapping. The *routes* live in `hub/src/http/a2a.ts` (ADR 0007). Streaming and push are not supported | `protocol-adapters` |
+| `adapters/a2a/` | A2A v1.0 protocol translation — card, JSON-RPC envelope, state mapping. The *routes* live in `hub/src/http/a2a.ts` (ADR 0007). Push notifications go only to an origin the owner authorised at enrolment; streaming is not supported | `protocol-adapters` |
 | `adapters/webhook/` | HMAC-signed outbound webhooks, REST inbound | `protocol-adapters` |
 | `sdk/typescript/` | Client SDK, `onTask` handlers, types inferred from `contracts/` | `sdk` |
 | `sdk/python/` | Python SDK (FR-18). Canonicalization and signing verified byte-identical to TypeScript via generated vectors; owner operations and async are not ported | `sdk` |

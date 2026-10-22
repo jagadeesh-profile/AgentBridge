@@ -221,6 +221,9 @@ importers:
 
   delivery:
     dependencies:
+      '@agentbridge/a2a':
+        specifier: workspace:*
+        version: link:../adapters/a2a
       '@agentbridge/contracts':
         specifier: workspace:*
         version: link:../contracts

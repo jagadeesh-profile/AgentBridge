@@ -33,7 +33,7 @@ card declares this as the `agentbridgeSignature` security scheme.
 | `tasks/get` | read a task you created or were assigned |
 | `tasks/cancel` | cancel a task **you created**, via the creator transition |
 | `message/stream`, `tasks/resubscribe` | `-32004`, not supported |
-| `tasks/pushNotificationConfig/*` | `-32003`, not supported |
+| `tasks/pushNotificationConfig/set` / `/get` | push to an **owner-authorised origin** (see below) |
 
 `metadata["agentbridge/assignee"]` is required: A2A addresses an endpoint,
 AgentBridge addresses a named agent, and the hub will not guess which one.
@@ -52,9 +52,23 @@ state is also surfaced as `metadata["agentbridge/state"]`.
 | `accepted` | `working` (A2A has no `accepted`) |
 | everything else | same name |
 
+## Push notifications, and why the URL is constrained
+
+`pushNotificationConfig/set` would normally be an SSRF primitive — an endpoint
+where you name a URL the hub then POSTs to. So **the URL must share an origin
+with your agent's registered webhook**, the origin the workspace owner signed
+at enrolment. You pick the path; you cannot pick the host. An agent with no
+registered webhook cannot use push and should poll.
+
+Notifications carry the A2A `Task` shape and no payload — a state change is
+the notification, and detail comes from `tasks/get`. Your `token` arrives in
+`x-a2a-notification-token`, and `pushNotificationConfig/get` never echoes it
+back. Delivery goes through the same path as ordinary webhooks, so retries,
+backoff and the dead-letter queue apply.
+
 ## Not yet
 
-Streaming and push notifications are declared `false` on the card rather than
-advertised and stubbed. There is no separate A2A conformance suite — coverage
+Streaming is declared `false` on the card rather than advertised and
+stubbed. There is no separate A2A conformance suite — coverage
 lives in `hub/src/http/a2a.test.ts`, and a real suite should run against the
 published spec rather than against one reading of it.

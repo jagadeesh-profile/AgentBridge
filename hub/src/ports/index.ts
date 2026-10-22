@@ -8,6 +8,7 @@ export type {
   IdempotencyHit,
   MessageRecord,
   OutboxRow,
+  PushConfigRow,
   Store,
   TaskRecord,
   ThreadRecord,

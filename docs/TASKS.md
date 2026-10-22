@@ -20,7 +20,7 @@ see "Verification debt".
 | Command | Result |
 |---|---|
 | `pnpm --filter @agentbridge/console run build` | **compiles** |
-| `make check` — lint, `tsc --strict`, unit, contract-drift | **524 tests** |
+| `make check` — lint, `tsc --strict`, unit, contract-drift | **534 tests** |
 | `make test-e2e` — real hub, SQLite on disk, delivery worker | **24 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests**, re-run against a freshly built image after the console work |
 | `make conformance` — MCP tool surface | **8 tests** |
@@ -105,7 +105,8 @@ see "Verification debt".
 | Item | Status |
 |---|---|
 | **A2A v1.0 endpoint** | ✅ card, JSON-RPC, `message/send` / `tasks/get` / `tasks/cancel`; ADR 0007 |
-| A2A streaming + push notifications | ⬜ declared `false` on the card, methods return a reason |
+| **A2A push notifications** | ✅ URL restricted to the agent's owner-authorised origin; reuses the retry/DLQ/redaction path |
+| A2A streaming | ⬜ declared `false` on the card; `message/stream` returns a reason |
 | A2A conformance suite | ⬜ coverage is in `hub/src/http/a2a.test.ts`; a real suite should run against the published spec |
 | `infra/` AWS CDK | ⬜ not started — writing infrastructure that `CLAUDE.md` §7 forbids deploying would ship untested code |
 | Phase 1 port adapters (DynamoDB, SQS FIFO, S3, KMS) | ⬜ the ports exist; each is one new file |

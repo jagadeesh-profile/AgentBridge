@@ -87,6 +87,16 @@ export interface AuditRow {
   createdAt: string;
 }
 
+/** A2A push notification config (ADR 0007). One per task. */
+export interface PushConfigRow {
+  workspace: string;
+  task: string;
+  agentRef: string;
+  url: string;
+  token: string | null;
+  createdAt: string;
+}
+
 export interface OutboxRow {
   id: string;
   workspace: string;
@@ -157,6 +167,10 @@ export interface Store {
   findUnconsumedApproval(workspace: string, task: string): ApprovalRecord | null;
   findAnyApproval(workspace: string, task: string): ApprovalRecord | null;
   consumeApproval(workspace: string, id: string, at: string): boolean;
+
+  // a2a push notification config
+  putPushConfig(row: PushConfigRow): void;
+  getPushConfig(workspace: string, task: string): PushConfigRow | null;
 
   // audit — append only
   appendAudit(row: Omit<AuditRow, 'seq'>): void;

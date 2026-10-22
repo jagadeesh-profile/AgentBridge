@@ -101,7 +101,30 @@ const MIGRATION_002 = `
 CREATE INDEX IF NOT EXISTS tasks_state ON tasks (workspace, state, created_at, id);
 `;
 
+/**
+ * A2A push notification config, one per task.
+ *
+ * `url` is constrained at the route to share an origin with the agent's
+ * registered webhook — the origin the owner signed at enrolment (ADR 0005) —
+ * so this table can never name a destination the owner did not authorise.
+ * Without that rule it would be an SSRF primitive: an endpoint where a
+ * caller picks a URL the hub then POSTs to.
+ */
+const MIGRATION_003 = `
+CREATE TABLE IF NOT EXISTS a2a_push (
+  workspace TEXT NOT NULL,
+  task TEXT NOT NULL,
+  agent_ref TEXT NOT NULL,
+  url TEXT NOT NULL,
+  token TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (workspace, task)
+);
+CREATE INDEX IF NOT EXISTS a2a_push_agent ON a2a_push (workspace, agent_ref);
+`;
+
 export const MIGRATIONS: readonly { readonly id: number; readonly sql: string }[] = [
   { id: 1, sql: MIGRATION_001 },
   { id: 2, sql: MIGRATION_002 },
+  { id: 3, sql: MIGRATION_003 },
 ];

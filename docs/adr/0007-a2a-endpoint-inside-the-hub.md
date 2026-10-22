@@ -65,13 +65,34 @@ the protocol.
   rather than guessing, because a guess routes someone's work to an arbitrary
   agent.
 
-### What is deliberately not supported
+### Push notifications, and the SSRF they would otherwise be
 
-`streaming` and `pushNotifications` are declared **false** on the card and the
-corresponding methods return `-32004` / `-32003` with a reason. Advertising a
-capability and stubbing it is worse than declining: a caller that reads
-`streaming: true` and gets a non-stream has no recourse, while one that reads
-`false` polls `tasks/get`, which works.
+`tasks/pushNotificationConfig/set` lets a caller name a URL the hub will then
+POST to. Taken literally that is an SSRF primitive: cloud metadata endpoints,
+internal services, anything the hub can reach from inside the network.
+
+**The push URL must share an origin with the calling agent's registered
+webhook** — the origin the owner signed at enrolment (ADR 0005). The caller
+chooses the path; it cannot choose the host. Push can therefore only ever
+reach a destination the owner already authorised, so there is no new
+destination to vet and no allowlist to maintain. An agent with no registered
+webhook cannot use push at all, which is correct rather than restrictive: it
+has no authorised origin, and the pull inbox already serves it.
+
+Delivery reuses `pushOnce` rather than adding a second sender, so retries,
+jittered backoff, the dead-letter queue, outbound redaction and HMAC signing
+all apply unchanged — a parallel path would have had to re-earn each of them.
+The notification carries the A2A `Task` shape and **no payload**: a state
+change is the notification, and detail comes from `tasks/get` over an
+authenticated channel. The caller's `token` rides in
+`x-a2a-notification-token`, and is never echoed back by
+`pushNotificationConfig/get` — otherwise a read becomes a way to recover a
+secret from a task id.
+
+`streaming` stays **false** on the card, and `message/stream` returns `-32004`
+with a reason. Advertising a capability and stubbing it is worse than
+declining: a caller that reads `streaming: true` and gets a non-stream has no
+recourse, while one that reads `false` polls `tasks/get`, which works.
 
 ## Consequences
 
@@ -97,6 +118,10 @@ capability and stubbing it is worse than declining: a caller that reads
 - Two discovery paths are served (`agent-card.json` and the pre-1.0
   `agent.json`) because clients in the wild fetch both. One more thing to keep
   in step.
+- Push config is keyed by task, so `pushOnce` must check the config's agent
+  matches the row's recipient — otherwise one party's URL would receive the
+  other party's notifications. There is a test for it, but it is the kind of
+  coupling that invites a future bug.
 - No A2A conformance suite yet. Coverage lives in `hub/src/http/a2a.test.ts`;
   `make conformance` still means MCP. A real suite should run against the
   published spec rather than against my reading of it.

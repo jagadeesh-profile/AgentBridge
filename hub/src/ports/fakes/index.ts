@@ -10,6 +10,7 @@ import type {
   IdempotencyHit,
   MessageRecord,
   OutboxRow,
+  PushConfigRow,
   Signer,
   Store,
   TaskRecord,
@@ -73,6 +74,7 @@ export class FakeStore implements Store {
   private outbox = new Map<string, OutboxRow>();
   private idempotency = new Map<string, IdempotencyHit>();
   private nonces = new Map<string, string>();
+  private pushConfigs = new Map<string, PushConfigRow>();
   private depth = 0;
 
   transaction<T>(fn: () => T): T {
@@ -97,6 +99,7 @@ export class FakeStore implements Store {
       outbox: new Map(this.outbox),
       idempotency: new Map(this.idempotency),
       nonces: new Map(this.nonces),
+      pushConfigs: new Map(this.pushConfigs),
     };
 
     this.depth = 1;
@@ -113,6 +116,7 @@ export class FakeStore implements Store {
       this.outbox = snapshot.outbox;
       this.idempotency = snapshot.idempotency;
       this.nonces = snapshot.nonces;
+      this.pushConfigs = snapshot.pushConfigs;
       throw err;
     } finally {
       this.depth = 0;
@@ -182,6 +186,13 @@ export class FakeStore implements Store {
         .slice(0, limit)
         .map((t) => ({ ...t }))
     );
+  }
+
+  putPushConfig(row: PushConfigRow): void {
+    this.pushConfigs.set(key(row.workspace, row.task), { ...row });
+  }
+  getPushConfig(workspace: string, task: string): PushConfigRow | null {
+    return this.pushConfigs.get(key(workspace, task)) ?? null;
   }
 
   putArtifact(a: ArtifactRecord): void {

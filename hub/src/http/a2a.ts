@@ -12,7 +12,7 @@ import {
 } from '@agentbridge/a2a';
 import { AgentBridgeError } from '@agentbridge/contracts';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { AgentRecord, Deps } from '../ports/index.js';
+import type { AgentRecord, Deps, TaskRecord } from '../ports/index.js';
 import { createTask, updateTask } from '../domain/tasks.js';
 
 /**
@@ -66,6 +66,59 @@ export function registerA2A(app: FastifyInstance, a2a: A2ADeps): void {
       return err(id, RPC.internalError, 'internal error');
     }
   });
+}
+
+/**
+ * The task, if it is the caller's business.
+ *
+ * Without this an A2A caller could enumerate every task in the workspace by
+ * id. "Not yours" and "does not exist" deliberately give the same answer, so
+ * the error cannot be used to probe for ids.
+ */
+function ownTaskOrThrow(deps: Deps, agent: AgentRecord, taskId: string): TaskRecord {
+  const task = deps.store.getTask(agent.workspace, taskId);
+  if (!task || (task.creator !== agent.ref && task.assignee !== agent.ref)) {
+    throw new RpcFailure(RPC.taskNotFound, 'no such task');
+  }
+  return task;
+}
+
+/**
+ * A push URL must share an origin with the agent's registered webhook.
+ *
+ * This is the whole SSRF answer. An endpoint where a caller names a URL the
+ * hub will then POST to is an SSRF primitive — cloud metadata, internal
+ * services, anything the hub can reach. Constraining it to the origin the
+ * OWNER signed at enrolment (ADR 0005) means push can only ever reach a
+ * destination already authorised; the caller chooses the path, not the host.
+ *
+ * An agent with no registered webhook cannot use push at all. That is
+ * correct rather than restrictive: it has no authorised origin, and the pull
+ * inbox already serves it.
+ */
+function assertAuthorisedOrigin(agent: AgentRecord, url: string): void {
+  if (agent.webhookUrl === null) {
+    throw new RpcFailure(
+      RPC.unsupportedOperation,
+      'this agent has no registered webhook, so it has no owner-authorised origin to ' +
+        'push to. Register one at enrolment, or poll tasks/get.',
+    );
+  }
+  let target: URL;
+  let allowed: URL;
+  try {
+    target = new URL(url);
+    allowed = new URL(agent.webhookUrl);
+  } catch {
+    throw new RpcFailure(RPC.invalidParams, 'pushNotificationConfig.url is not a valid URL');
+  }
+  if (target.origin !== allowed.origin) {
+    throw new RpcFailure(
+      RPC.invalidParams,
+      `push url must share an origin with this agent's registered webhook (${allowed.origin}); ` +
+        'the hub will not POST to a destination the owner did not authorise',
+    );
+  }
 }
 
 /** Hub error code → JSON-RPC code. Unmapped codes surface as internal. */
@@ -128,17 +181,9 @@ async function dispatch(
       return toA2ATask(task);
     }
 
-    case 'tasks/get': {
+    case 'tasks/get':
       if (typeof p.id !== 'string') throw new RpcFailure(RPC.invalidParams, 'id is required');
-      const task = deps.store.getTask(agent.workspace, p.id);
-      // Scoped to the caller's own work. Without this an A2A caller could
-      // enumerate every task in the workspace by id, which the REST route
-      // also permits — recorded as a follow-up rather than widened here.
-      if (!task || (task.creator !== agent.ref && task.assignee !== agent.ref)) {
-        throw new RpcFailure(RPC.taskNotFound, 'no such task');
-      }
-      return toA2ATask(task);
-    }
+      return toA2ATask(ownTaskOrThrow(deps, agent, p.id));
 
     case 'tasks/cancel': {
       if (typeof p.id !== 'string') throw new RpcFailure(RPC.invalidParams, 'id is required');
@@ -158,12 +203,41 @@ async function dispatch(
         'streaming is not supported; the agent card declares streaming: false. Poll tasks/get.',
       );
 
-    case 'tasks/pushNotificationConfig/set':
-    case 'tasks/pushNotificationConfig/get':
-      throw new RpcFailure(
-        RPC.pushNotificationNotSupported,
-        'push notifications are not supported; the card declares pushNotifications: false',
-      );
+    case 'tasks/pushNotificationConfig/set': {
+      const taskId = typeof p.taskId === 'string' ? p.taskId : p.id;
+      if (typeof taskId !== 'string') throw new RpcFailure(RPC.invalidParams, 'taskId is required');
+      const cfg = (p.pushNotificationConfig ?? p.config ?? {}) as Record<string, unknown>;
+      const url = cfg.url;
+      if (typeof url !== 'string') {
+        throw new RpcFailure(RPC.invalidParams, 'pushNotificationConfig.url is required');
+      }
+
+      const task = ownTaskOrThrow(deps, agent, taskId);
+      assertAuthorisedOrigin(agent, url);
+
+      deps.store.putPushConfig({
+        workspace: agent.workspace,
+        task: task.id,
+        agentRef: agent.ref,
+        url,
+        token: typeof cfg.token === 'string' ? cfg.token : null,
+        createdAt: new Date().toISOString(),
+      });
+      return { taskId: task.id, pushNotificationConfig: { url, token: cfg.token ?? undefined } };
+    }
+
+    case 'tasks/pushNotificationConfig/get': {
+      const taskId = typeof p.taskId === 'string' ? p.taskId : p.id;
+      if (typeof taskId !== 'string') throw new RpcFailure(RPC.invalidParams, 'taskId is required');
+      const task = ownTaskOrThrow(deps, agent, taskId);
+      const cfg = deps.store.getPushConfig(agent.workspace, task.id);
+      if (!cfg || cfg.agentRef !== agent.ref) {
+        throw new RpcFailure(RPC.taskNotFound, 'no push configuration for that task');
+      }
+      // The token is write-only: echoing it back would turn a read into a
+      // way to recover a secret from a task id.
+      return { taskId: task.id, pushNotificationConfig: { url: cfg.url } };
+    }
 
     default:
       throw new RpcFailure(RPC.methodNotFound, `unknown method: ${method}`);

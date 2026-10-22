@@ -34,7 +34,9 @@ export function buildAgentCard(opts: AgentCardOptions) {
       // `streaming: true` and gets a non-stream has no recourse; one that sees
       // false polls `tasks/get`, which works.
       streaming: false,
-      pushNotifications: false,
+      // Push is supported, but only to an origin the workspace owner already
+      // authorised for that agent at enrolment — see tasks/pushNotificationConfig/set.
+      pushNotifications: true,
       stateTransitionHistory: false,
     },
 
