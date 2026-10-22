@@ -17,7 +17,12 @@ import { describe, expect, it } from 'vitest';
  * is decided by which helper the handler calls, which only the source shows.
  */
 
-const SRC = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'app.ts'), 'utf8');
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SRC = readFileSync(join(HERE, 'app.ts'), 'utf8');
+// a2a.ts registers routes too. Scanning only app.ts would leave three routes
+// unclassified while the guard still passed — the exact silence it exists to
+// break.
+const A2A_SRC = readFileSync(join(HERE, 'a2a.ts'), 'utf8');
 
 /** method + path -> who may call it. Update deliberately, never to go green. */
 const EXPECTED: Record<string, 'open' | 'owner' | 'agent'> = {
@@ -43,6 +48,14 @@ const EXPECTED: Record<string, 'open' | 'owner' | 'agent'> = {
   'POST /v1/artifacts': 'agent',
   'GET /v1/inbox': 'agent',
   'POST /v1/inbox/ack': 'agent',
+
+  // A2A (Phase 1). Discovery must work before the remote agent has
+  // credentials, so the card is public; it carries protocol facts only.
+  'GET /.well-known/agent-card.json': 'open',
+  'GET /.well-known/agent.json': 'open',
+  // Authenticated as the REMOTE agent, which is why the endpoint lives in the
+  // hub rather than in a proxy that would have to re-sign.
+  'POST /a2a/v1': 'agent',
 };
 
 /** Every `app.<verb>(...)` registration, with the guard its handler calls. */
@@ -50,16 +63,24 @@ function registeredRoutes(): Map<string, 'open' | 'owner' | 'agent'> {
   const found = new Map<string, 'open' | 'owner' | 'agent'>();
   // Match the registration and the body up to the next registration.
   const re =
-    /app\.(get|post|patch|delete)(?:<[^>]*>)?\(\s*'([^']+)'([\s\S]*?)(?=\n {2}app\.|\n {2}return app;)/g;
-  for (const m of SRC.matchAll(re)) {
-    const [, verb, path, body] = m;
-    const key = `${(verb ?? '').toUpperCase()} ${path ?? ''}`;
-    const guard = (body ?? '').includes('requireOwner(req)')
-      ? 'owner'
-      : (body ?? '').includes('requireAgent(req)')
-        ? 'agent'
-        : 'open';
-    found.set(key, guard);
+    // The final alternative terminates the last route in a2a.ts, which ends at
+    // the close of registerA2A rather than at `return app;`.
+    /app\.(get|post|patch|delete)(?:<[^>]*>)?\(\s*'([^']+)'([\s\S]*?)(?=\n {2}app\.|\n {2}return app;|\n\})/g;
+  for (const src of [SRC, A2A_SRC]) {
+    for (const m of src.matchAll(new RegExp(re.source, re.flags))) {
+      const [, verb, path, body] = m;
+      const key = `${(verb ?? '').toUpperCase()} ${path ?? ''}`;
+      const text = body ?? '';
+      // `req.agent` counts as agent auth: a2a.ts reads it directly rather than
+      // through requireAgent, because it answers in JSON-RPC rather than by
+      // throwing an AgentBridgeError.
+      const guard = text.includes('requireOwner(req)')
+        ? 'owner'
+        : text.includes('requireAgent(req)') || text.includes('req.agent')
+          ? 'agent'
+          : 'open';
+      found.set(key, guard);
+    }
   }
   return found;
 }

@@ -1,4 +1,4 @@
-# TASKS — Phase 0
+# TASKS — Phase 0, and the start of Phase 1
 
 The planning and completion record required by `CLAUDE.md` §5.2. One row per
 task, with its owner, its acceptance criteria and what actually happened.
@@ -20,7 +20,7 @@ see "Verification debt".
 | Command | Result |
 |---|---|
 | `pnpm --filter @agentbridge/console run build` | **compiles** |
-| `make check` — lint, `tsc --strict`, unit, contract-drift | **505 tests** |
+| `make check` — lint, `tsc --strict`, unit, contract-drift | **524 tests** |
 | `make test-e2e` — real hub, SQLite on disk, delivery worker | **24 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests**, re-run against a freshly built image after the console work |
 | `make conformance` — MCP tool surface | **8 tests** |
@@ -99,6 +99,19 @@ see "Verification debt".
 | **Console — audit viewer** | ✅ chain verified in-page, dead letters, break highlighted |
 | Chain rule shared via `contracts/verifyAuditChain` | ✅ hub appends and console checks with one implementation |
 | Chain detects deletion, not just edits | ✅ `seq`-gap check; hash-linking alone missed it |
+
+## Phase 1
+
+| Item | Status |
+|---|---|
+| **A2A v1.0 endpoint** | ✅ card, JSON-RPC, `message/send` / `tasks/get` / `tasks/cancel`; ADR 0007 |
+| A2A streaming + push notifications | ⬜ declared `false` on the card, methods return a reason |
+| A2A conformance suite | ⬜ coverage is in `hub/src/http/a2a.test.ts`; a real suite should run against the published spec |
+| `infra/` AWS CDK | ⬜ not started — writing infrastructure that `CLAUDE.md` §7 forbids deploying would ship untested code |
+| Phase 1 port adapters (DynamoDB, SQS FIFO, S3, KMS) | ⬜ the ports exist; each is one new file |
+| Python SDK (FR-18) | ⬜ |
+| OAuth 2.1 / mTLS | ⬜ ADR 0002 defers these here |
+| `withIdempotency` durable reservation | ⬜ needed once delivery splits into its own process |
 
 ## What TDD caught that the plan got wrong
 

@@ -25,6 +25,7 @@ import { registerAgent, revokeKey } from '../domain/registry.js';
 import { cancelTaskAsOwner, createTask, updateTask } from '../domain/tasks.js';
 import { postMessage } from '../domain/threads.js';
 import { ackInbox, listInbox } from '../domain/inbox.js';
+import { registerA2A } from './a2a.js';
 import type { AgentRecord, BlobStore, Clock, IdGen, Store } from '../ports/index.js';
 import { REPLAY_WINDOW_MS, assertFreshTimestamp, authenticate, authenticateOwner } from './auth.js';
 import { assertDepth, registerErrorHandler } from './errors.js';
@@ -42,6 +43,8 @@ export interface AppDeps {
 }
 
 export interface AppOptions {
+  /** Public base URL, published in the A2A agent card. */
+  publicUrl?: string;
   bodyLimit?: number;
   rateLimitMax?: number;
   rateLimitWindow?: string;
@@ -178,7 +181,11 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
   });
 
   app.addHook('preHandler', async (req) => {
-    if (!req.url.startsWith(AUTHENTICATED_PREFIX)) return;
+    // /a2a/v1 is authenticated like any agent route: the remote agent signs
+    // the request it actually sends, and the hub verifies that signature
+    // here. See hub/src/http/a2a.ts for why the endpoint is not a proxy.
+    const authenticated = req.url.startsWith(AUTHENTICATED_PREFIX) || req.url.startsWith('/a2a/');
+    if (!authenticated) return;
     const path = req.url.split('?')[0] ?? req.url;
     if (OPEN_PATHS.has(path) && req.method === 'POST') {
       await requireOwnerRegistration(req);
@@ -291,6 +298,8 @@ export async function buildApp(deps: AppDeps, opts: AppOptions = {}): Promise<Fa
   };
 
   app.get('/healthz', async () => ({ status: 'ok' }));
+
+  registerA2A(app, { deps, publicUrl: opts.publicUrl ?? 'http://localhost:8080' });
 
   app.post('/v1/agents', async (req, reply) => {
     const parsed = RegisterAgentRequest.parse(req.body);

@@ -3,8 +3,8 @@
 AgentBridge is a vendor-neutral, event-driven hub that lets any AI agent (Claude, ChatGPT, Gemini, LangGraph, CrewAI, Bedrock agents) find another agent, hand it work and get results back with no human relaying messages. Agents connect through MCP, A2A, webhook + REST, or the TypeScript SDK. They share threads, tasks and artifacts, and every side effect waits for the owner's approval.
 
 - PRD (source of truth for scope): https://claude.ai/artifact/WF43bQ4w36yFJBnWky63iJ
-- Current phase: **Phase 0 — Prototype** (hub core, MCP server, webhook + pull inbox, signed identities, Claude ↔ Muse pilot)
-- Phase 0 exit gate: the Claude ↔ Muse pilot runs relay-free for 7 straight days
+- Current phase: **Phase 1 started.** A2A has landed (ADR 0007). AWS infra, the Python SDK and OAuth 2.1 remain.
+- Phase 0 is feature-complete — hub core, MCP, webhook + pull inbox, signed identities, the owner console and the Claude ↔ Muse pilot — but its **exit gate is not met**: that needs the pilot running relay-free for 7 straight days, and nothing on this branch has had a second reviewer.
 
 This file is loaded into every session. Keep it accurate; update it in the same PR as any change it describes.
 
@@ -37,7 +37,7 @@ Each path has exactly one owning subagent. Only the owner edits it; anyone may r
 | `hub/` | Fastify service: registry, workspaces, threads, tasks, artifacts, approvals, audit. Ports in `src/ports/`, domain in `src/domain/`, routes in `src/http/`, SQLite and filesystem adapters in `src/adapters/` | `hub-backend` |
 | `delivery/` | Push workers, retries, dead-letter, pull inbox, wake-up adapters | `hub-backend` |
 | `adapters/mcp/` | AgentBridge MCP server (tools + notifications) | `protocol-adapters` |
-| `adapters/a2a/` | A2A v1.0 endpoint, Agent Card, push notifications — **Phase 1** | `protocol-adapters` |
+| `adapters/a2a/` | A2A v1.0 protocol translation — card, JSON-RPC envelope, state mapping. The *routes* live in `hub/src/http/a2a.ts` (ADR 0007). Streaming and push are not supported | `protocol-adapters` |
 | `adapters/webhook/` | HMAC-signed outbound webhooks, REST inbound | `protocol-adapters` |
 | `sdk/typescript/` | Client SDK, `onTask` handlers, types inferred from `contracts/` | `sdk` |
 | `sdk/python/` | Python SDK at parity — **P1 (FR-18), not built in Phase 0** | `sdk` |
@@ -71,7 +71,7 @@ make lint           # eslint, prettier --check, tsc --noEmit
 make test           # unit tests, all packages (vitest)
 make test-e2e       # e2e against a real in-process hub (SQLite on disk, worker)
 make test-container # the real Docker image, driven over HTTP only
-make conformance    # MCP conformance suite (A2A is Phase 1)
+make conformance    # MCP conformance suite (A2A coverage is in hub/src/http/a2a.test.ts)
 make check          # lint + test + contracts — must pass before any handoff
 ```
 
@@ -83,7 +83,8 @@ Task status and the record of what shipped: [`docs/TASKS.md`](docs/TASKS.md).
 Architecture decisions: [`docs/adr/`](docs/adr/) — 0001 TypeScript and
 ports-and-adapters, 0002 signature-only auth, 0003 `node:sqlite`, 0004 gated
 registration (superseded), 0005 owner-signed registration, 0006
-owner-authenticated routes and the console's in-browser key.
+owner-authenticated routes and the console's in-browser key, 0007 the A2A
+endpoint inside the hub rather than behind a proxy.
 
 ---
 

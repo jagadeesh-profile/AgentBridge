@@ -131,6 +131,12 @@ importers:
         specifier: 5.0.5
         version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(vite@8.3.4(@types/node@26.6.5)(yaml@2.8.1))
 
+  adapters/a2a:
+    dependencies:
+      '@agentbridge/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+
   adapters/mcp:
     dependencies:
       '@agentbridge/contracts':
@@ -246,6 +252,9 @@ importers:
 
   hub:
     dependencies:
+      '@agentbridge/a2a':
+        specifier: workspace:*
+        version: link:../adapters/a2a
       '@agentbridge/contracts':
         specifier: workspace:*
         version: link:../contracts
