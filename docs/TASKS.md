@@ -20,7 +20,7 @@ see "Verification debt".
 | Command | Result |
 |---|---|
 | `pnpm --filter @agentbridge/console run build` | **compiles** |
-| `make check` — lint, `tsc --strict`, unit, contract-drift | **534 tests** |
+| `make check` — lint, `tsc --strict`, unit, contract-drift | **582 tests** |
 | `make test-e2e` — real hub, SQLite on disk, delivery worker | **24 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests**, re-run against a freshly built image after the console work |
 | `make conformance` — MCP tool surface | **8 tests** |
@@ -109,7 +109,9 @@ see "Verification debt".
 | A2A streaming | ⬜ declared `false` on the card; `message/stream` returns a reason |
 | A2A conformance suite | ⬜ coverage is in `hub/src/http/a2a.test.ts`; a real suite should run against the published spec |
 | `infra/` AWS CDK | ⬜ not started — writing infrastructure that `CLAUDE.md` §7 forbids deploying would ship untested code |
-| Phase 1 port adapters (DynamoDB, SQS FIFO, S3, KMS) | ⬜ the ports exist; each is one new file |
+| **Store conformance suite** | ✅ one spec, both implementations, 48 assertions; mutation-checked |
+| Phase 1 port adapters — SQS FIFO, S3, KMS | ⬜ genuinely one file each; no read-modify-write |
+| Phase 1 port adapter — DynamoDB `Store` | ⬜ **not one file.** Needs optimistic concurrency + callback retry (ADR 0008) |
 | **Python SDK (FR-18)** | ✅ canonicalization, signing, client, pull-inbox handler; byte-identical to TS by generated vectors |
 | Python SDK — async, webhook receiver, OwnerClient | ⬜ not ported; no Python agent needs owner operations |
 | OAuth 2.1 / mTLS | ⬜ ADR 0002 defers these here |

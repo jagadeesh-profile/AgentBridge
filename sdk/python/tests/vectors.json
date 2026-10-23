@@ -135,7 +135,7 @@
         "a": 0.1,
         "b": 1.5,
         "c": -2.25,
-        "d": 1e21,
+        "d": 1e+21,
         "e": 1e-7,
         "f": 1
       },
@@ -144,7 +144,18 @@
     },
     {
       "name": "nested-arrays",
-      "value": [1, [2, [3, [4]]]],
+      "value": [
+        1,
+        [
+          2,
+          [
+            3,
+            [
+              4
+            ]
+          ]
+        ]
+      ],
       "canonical": "[1,[2,[3,[4]]]]",
       "payload_hash": "555b0df648af953b7597ced222ac9ca05fbc8afe8fdf8e5ea6a7c2a6dfb2e6f5"
     },
@@ -195,7 +206,10 @@
       "method": "GET",
       "path": "/v1/tasks",
       "query": {
-        "state": ["working", "accepted"],
+        "state": [
+          "working",
+          "accepted"
+        ],
         "limit": "2"
       },
       "body": "",

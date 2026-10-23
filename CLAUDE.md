@@ -61,7 +61,7 @@ Unit tests live next to the code they test and belong to that code's owner.
 - **SDK:** `tsup` for `sdk/typescript`; **Console:** Next.js 16 + React 19, client-side only — no API route, just a path-preserving `/v1/*` rewrite to the hub
 - **Contracts:** Zod schemas are the source of truth; JSON Schema and `openapi.yaml` are generated into `contracts/generated/` and drift-checked
 - **Observability:** OpenTelemetry. `trace_id` is carried in the envelope and adopted from the caller, so one trace spans both agents; it becomes the real OTel trace id. Spans export over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set and are a no-op otherwise. No auto-instrumentation: every span is explicit and its attributes pass an allowlist, so a body can never reach a span.
-- **Phase 0 runtime:** one Node container — `node:sqlite` for state, a durable SQLite outbox plus an in-process scheduler keyed by `thread_id` for ordering, local filesystem for artifacts. All six ports (`Store`, `Queue`, `BlobStore`, `Clock`, `IdGen`, `Signer`) are interfaces; DynamoDB, SQS FIFO, S3 and KMS drop in at Phase 1 as one new file each.
+- **Phase 0 runtime:** one Node container — `node:sqlite` for state, a durable SQLite outbox plus an in-process scheduler keyed by `thread_id` for ordering, local filesystem for artifacts. All six ports (`Store`, `Queue`, `BlobStore`, `Clock`, `IdGen`, `Signer`) are interfaces. SQS FIFO, S3 and KMS are one new file each at Phase 1; **`Store` is not** — the audit chain does a read-modify-write inside `transaction()`, which `TransactWriteItems` cannot express, so DynamoDB needs an optimistic-concurrency adapter that can re-run the callback (ADR 0008). Every implementation must pass `hub/src/ports/store-conformance.ts`.
 
 ```bash
 make setup          # pnpm install + pre-commit install
@@ -85,7 +85,8 @@ Architecture decisions: [`docs/adr/`](docs/adr/) — 0001 TypeScript and
 ports-and-adapters, 0002 signature-only auth, 0003 `node:sqlite`, 0004 gated
 registration (superseded), 0005 owner-signed registration, 0006
 owner-authenticated routes and the console's in-browser key, 0007 the A2A
-endpoint inside the hub rather than behind a proxy.
+endpoint inside the hub rather than behind a proxy, 0008 the Store conformance
+suite and what it says about the Phase 1 migration.
 
 ---
 
