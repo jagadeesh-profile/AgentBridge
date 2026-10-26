@@ -110,12 +110,34 @@ see "Verification debt".
 | A2A conformance suite | ⬜ coverage is in `hub/src/http/a2a.test.ts`; a real suite should run against the published spec |
 | `infra/` AWS CDK | ⬜ not started — writing infrastructure that `CLAUDE.md` §7 forbids deploying would ship untested code |
 | **Store conformance suite** | ✅ one spec, both implementations, 48 assertions; mutation-checked |
-| Phase 1 port adapters — SQS FIFO, S3, KMS | ⬜ genuinely one file each; no read-modify-write |
-| Phase 1 port adapter — DynamoDB `Store` | ⬜ **not one file.** Needs optimistic concurrency + callback retry (ADR 0008) |
+| **Phase 1 port adapter — S3 `BlobStore`** | ✅ one file; passes `blob-conformance.ts` against LocalStack, 12 cases each side; `pnpm run test-aws` refuses to pass vacuously |
+| Phase 1 port adapter — SQS FIFO `Queue` | 🚧 **blocked, not small.** `claimNext`/`recoverInflight` are sync; and §1.5's "hold the thread until backoff expires" is not what a FIFO visibility timeout does (ADR 0009) |
+| Phase 1 port adapter — KMS `Signer` | ❌ **withdrawn.** `Signer` has no caller in the hub; KMS has no Ed25519 to offer §1.2 (ADR 0009) |
+| Phase 1 port adapter — DynamoDB `Store` | 🚧 **blocked on an owner decision.** Needs optimistic concurrency (ADR 0008) *and* an async `Store`, since all 45 methods are sync and no networked database can implement that in Node (ADR 0009) |
 | **Python SDK (FR-18)** | ✅ canonicalization, signing, client, pull-inbox handler; byte-identical to TS by generated vectors |
 | Python SDK — async, webhook receiver, OwnerClient | ⬜ not ported; no Python agent needs owner operations |
 | OAuth 2.1 / mTLS | ⬜ ADR 0002 defers these here |
 | **`withIdempotency` durable reservation** | ✅ reserves before the body runs; proven across two processes on one database; migration 004 |
+| **`BlobStore` conformance suite** | ✅ one spec, both implementations, 24 assertions; mutation-checked twice |
+| `make test-python` / `test-aws` targets missing from the Makefile | ✅ `test-python` was a pnpm script with no `make` target despite §3 documenting one |
+
+### The Phase 1 decision now blocking DynamoDB and SQS
+
+ADR 0009 states it in full. In short: the synchronous `Store` is a commitment to
+**embedded** storage, because Node cannot serve a synchronous method from
+network I/O — this is not specific to DynamoDB, it is equally true of Aurora and
+RDS. Either
+
+- **A** — make `Store` async (45 methods, every domain module and route), which
+  gives up the no-interleaving property ADR 0003 bought and hands §1.9's
+  atomicity to adapter-level optimistic concurrency; or
+- **B** — keep it synchronous, run Phase 1 single-writer (SQLite on EFS, or
+  litestream), and drop DynamoDB/SQS from scope.
+
+The lead's recommendation is **B until a second hub instance is actually
+needed**: nothing in the PRD requires horizontal hub scale, the current
+invariants are enforced by a design that depends on synchronicity, and B keeps A
+fully available later. This is the owner's call, not the lead's.
 
 ## What TDD caught that the plan got wrong
 

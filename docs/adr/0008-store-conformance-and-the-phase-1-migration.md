@@ -81,6 +81,16 @@ mid-migration:
 exception. SQS FIFO, S3 and KMS are genuinely small: `Queue`, `BlobStore` and
 `Signer` have no read-modify-write.
 
+> **Corrected by [ADR 0009](0009-the-sync-port-boundary.md) (2026-10-26).** The
+> sentence above is wrong about two of the three. Absence of read-modify-write
+> was the only criterion applied, and it was not sufficient: `Queue` is
+> synchronous in `claimNext`/`recoverInflight` and `Store` in all 45 of its
+> methods, which no networked database can implement in Node — so the barrier
+> to DynamoDB is not only the audit chain's atomicity but the port's
+> synchronicity. `Signer`, meanwhile, has no caller in the hub at all and could
+> not use KMS regardless, which has no Ed25519. Only `BlobStore`/S3 was
+> genuinely small, and it has since shipped.
+
 ## Consequences
 
 **Good**

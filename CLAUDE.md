@@ -61,7 +61,7 @@ Unit tests live next to the code they test and belong to that code's owner.
 - **SDK:** `tsup` for `sdk/typescript`; **Console:** Next.js 16 + React 19, client-side only — no API route, just a path-preserving `/v1/*` rewrite to the hub
 - **Contracts:** Zod schemas are the source of truth; JSON Schema and `openapi.yaml` are generated into `contracts/generated/` and drift-checked
 - **Observability:** OpenTelemetry. `trace_id` is carried in the envelope and adopted from the caller, so one trace spans both agents; it becomes the real OTel trace id. Spans export over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set and are a no-op otherwise. No auto-instrumentation: every span is explicit and its attributes pass an allowlist, so a body can never reach a span.
-- **Phase 0 runtime:** one Node container — `node:sqlite` for state, a durable SQLite outbox plus an in-process scheduler keyed by `thread_id` for ordering, local filesystem for artifacts. All six ports (`Store`, `Queue`, `BlobStore`, `Clock`, `IdGen`, `Signer`) are interfaces. SQS FIFO, S3 and KMS are one new file each at Phase 1; **`Store` is not** — the audit chain does a read-modify-write inside `transaction()`, which `TransactWriteItems` cannot express, so DynamoDB needs an optimistic-concurrency adapter that can re-run the callback (ADR 0008). Every implementation must pass `hub/src/ports/store-conformance.ts`.
+- **Phase 0 runtime:** one Node container — `node:sqlite` for state, a durable SQLite outbox plus an in-process scheduler keyed by `thread_id` for ordering, local filesystem for artifacts. All six ports (`Store`, `Queue`, `BlobStore`, `Clock`, `IdGen`, `Signer`) are interfaces. **Of the Phase 1 adapters, only S3 is a drop-in**, and it is done — `hub/src/adapters/s3/blob.ts`, passing `hub/src/ports/blob-conformance.ts` against both it and the filesystem store. The others do not drop in (ADR 0009): `Store` is synchronous in all 45 methods and `Queue` in 2 of 5, and Node cannot serve a synchronous method from network I/O, so **DynamoDB and SQS both require making those ports async first** — a decision deferred to the owner, since the synchronous transaction is what gives §1.9 its atomicity for free (ADR 0003). The KMS line is withdrawn: `Signer` has no caller anywhere in the hub, and KMS has no Ed25519 algorithm to offer §1.2 anyway. Every `Store` implementation must pass `hub/src/ports/store-conformance.ts`.
 
 ```bash
 make setup          # pnpm install + pre-commit install
@@ -86,7 +86,8 @@ ports-and-adapters, 0002 signature-only auth, 0003 `node:sqlite`, 0004 gated
 registration (superseded), 0005 owner-signed registration, 0006
 owner-authenticated routes and the console's in-browser key, 0007 the A2A
 endpoint inside the hub rather than behind a proxy, 0008 the Store conformance
-suite and what it says about the Phase 1 migration.
+suite and what it says about the Phase 1 migration, 0009 the synchronous port
+boundary and which Phase 1 adapters are actually possible.
 
 ---
 
