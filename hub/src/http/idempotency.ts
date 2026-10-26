@@ -2,35 +2,34 @@ import { AgentBridgeError } from '@agentbridge/contracts';
 import type { Store } from '../ports/index.js';
 
 /**
- * In-flight executions, per Store instance. Keyed by workspace/agent/key.
+ * At-least-once delivery, exactly-once **effect** (CLAUDE.md §1.4).
  *
- * Without this, two concurrent requests sharing one idempotency key both enter
- * the body before either records a response: the second result is discarded,
- * but it has already written its rows. Discarding a duplicate's RESPONSE is not
- * the same as not performing the duplicate's EFFECT, and CLAUDE.md §1.4 asks
- * for the latter. Coalescing onto one promise gives exactly-once in this
- * process, which is the whole hub in Phase 0 (one container, spec §2.1).
+ * The key is reserved in the database *before* the body runs, not after. The
+ * earlier shape recorded the response once `fn()` had already returned, which
+ * meant two callers could both find no record, both execute — the effect
+ * happening twice — and only the loser's *response* be discarded. Discarding
+ * a duplicate's response is not the same as not performing its effect.
  *
- * A WeakMap keyed by the Store keeps this out of module-global state, so tests
- * and multiple hub instances do not share entries.
+ * In-process coalescing papered over that while the hub was a single
+ * container, and would stop doing so the moment delivery splits into its own
+ * process, which is the Phase 1 topology (ADR 0008).
+ *
+ * The reservation is a single conditional write, so the database decides the
+ * race rather than a read-then-write window in application code.
  */
-const inFlight = new WeakMap<Store, Map<string, Promise<unknown>>>();
-
-function flightsFor(store: Store): Map<string, Promise<unknown>> {
-  let m = inFlight.get(store);
-  if (m === undefined) {
-    m = new Map();
-    inFlight.set(store, m);
-  }
-  return m;
-}
 
 /**
- * At-least-once delivery, exactly-once effect (CLAUDE.md §1.4).
- *
- * A replay returns the stored response rather than re-executing. A thrown body
- * is never recorded, so a retry after a genuine failure can still succeed.
+ * How long a reservation may sit unfinished before another caller may take
+ * it. Longer than any request the hub will serve — the body is bounded by the
+ * HTTP timeout — but short enough that a crashed process does not wedge a key
+ * for a human-noticeable time.
  */
+export const RESERVATION_STALE_MS = 60_000;
+
+/** How long a caller waits for an in-flight twin before giving up. */
+const WAIT_TOTAL_MS = 5_000;
+const WAIT_STEP_MS = 25;
+
 export async function withIdempotency<T>(
   deps: { store: Store },
   workspace: string,
@@ -41,44 +40,58 @@ export async function withIdempotency<T>(
 ): Promise<T> {
   if (key === undefined) return await fn();
 
-  const recorded = deps.store.findIdempotent(workspace, agent, key);
-  if (recorded) return replay<T>(recorded, requestHash);
+  const outcome = deps.store.reserveIdempotent(
+    workspace,
+    agent,
+    key,
+    requestHash,
+    new Date(),
+    RESERVATION_STALE_MS,
+  );
 
-  const flights = flightsFor(deps.store);
-  const flightKey = `${workspace}/${agent}/${key}`;
+  if (outcome.kind === 'replay') return replay<T>(outcome.hit, requestHash);
 
-  const running = flights.get(flightKey);
-  if (running !== undefined) {
-    // Another request with this key is mid-flight. Share its result rather than
-    // performing the effect a second time.
-    const shared = (await running) as T;
-    const after = deps.store.findIdempotent(workspace, agent, key);
-    return after ? replay<T>(after, requestHash) : shared;
+  if (outcome.kind === 'in-flight') {
+    // Someone else holds the reservation. Wait for their answer rather than
+    // performing the effect again — that is the entire point.
+    const hit = await waitForCompletion(deps.store, workspace, agent, key);
+    if (hit) return replay<T>(hit, requestHash);
+    // Still unfinished after the wait. Reporting a conflict is wrong (nothing
+    // conflicts) and executing is wrong (the twin may yet succeed), so this
+    // is a retryable refusal.
+    throw new AgentBridgeError(
+      'rate_limited',
+      'another request with this idempotency key is still in flight; retry shortly',
+    );
   }
 
-  const flight = (async () => {
-    const result = await fn();
-    const won = deps.store.tryPutIdempotent(
-      workspace,
-      agent,
-      key,
-      requestHash,
-      JSON.stringify(result ?? null),
-    );
-    if (!won) {
-      // Another process won the durable insert. Replay theirs so both callers
-      // agree on one answer.
-      const theirs = deps.store.findIdempotent(workspace, agent, key);
-      if (theirs) return replay<T>(theirs, requestHash);
-    }
-    return result;
-  })();
-
-  flights.set(flightKey, flight);
+  // We hold the reservation.
+  let result: T;
   try {
-    return await flight;
-  } finally {
-    flights.delete(flightKey);
+    result = await fn();
+  } catch (err) {
+    // Release so a genuine failure can be retried. Without this, one failed
+    // attempt would make the key permanently unusable until it went stale.
+    deps.store.releaseIdempotent(workspace, agent, key);
+    throw err;
+  }
+
+  deps.store.completeIdempotent(workspace, agent, key, JSON.stringify(result ?? null), new Date());
+  return result;
+}
+
+async function waitForCompletion(
+  store: Store,
+  workspace: string,
+  agent: string,
+  key: string,
+): Promise<{ requestHash: string; response: string } | null> {
+  const deadline = Date.now() + WAIT_TOTAL_MS;
+  for (;;) {
+    const hit = store.findIdempotent(workspace, agent, key);
+    if (hit) return hit;
+    if (Date.now() >= deadline) return null;
+    await new Promise((resolve) => setTimeout(resolve, WAIT_STEP_MS));
   }
 }
 

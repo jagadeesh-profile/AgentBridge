@@ -255,6 +255,66 @@ export function describeStoreConformance(name: string, makeStore: () => Store): 
       });
     });
 
+    describe('idempotency reservations', () => {
+      const NOW = new Date('2026-10-20T12:00:00.000Z');
+      const MIN = 60_000;
+
+      it('grants the reservation to exactly one of two callers', () => {
+        const s = makeStore();
+        expect(s.reserveIdempotent('ws', 'agent:a', 'k', 'h', NOW, MIN).kind).toBe('reserved');
+        expect(s.reserveIdempotent('ws', 'agent:a', 'k', 'h', NOW, MIN).kind).toBe('in-flight');
+      });
+
+      it('does not report an unfinished reservation as a hit', () => {
+        // A waiting caller would otherwise parse an absent response.
+        const s = makeStore();
+        s.reserveIdempotent('ws', 'agent:a', 'k', 'h', NOW, MIN);
+        expect(s.findIdempotent('ws', 'agent:a', 'k')).toBeNull();
+      });
+
+      it('replays once completed', () => {
+        const s = makeStore();
+        s.reserveIdempotent('ws', 'agent:a', 'k', 'h', NOW, MIN);
+        s.completeIdempotent('ws', 'agent:a', 'k', '{"ok":1}', NOW);
+        const outcome = s.reserveIdempotent('ws', 'agent:a', 'k', 'h', NOW, MIN);
+        expect(outcome.kind).toBe('replay');
+        expect(s.findIdempotent('ws', 'agent:a', 'k')?.response).toBe('{"ok":1}');
+      });
+
+      it('frees the key on release so a failed body can be retried', () => {
+        const s = makeStore();
+        s.reserveIdempotent('ws', 'agent:a', 'k', 'h', NOW, MIN);
+        s.releaseIdempotent('ws', 'agent:a', 'k');
+        expect(s.reserveIdempotent('ws', 'agent:a', 'k', 'h', NOW, MIN).kind).toBe('reserved');
+      });
+
+      it('NEVER releases a completed record', () => {
+        // Release must only drop a reservation. Dropping a completed record
+        // would turn a replay back into a second execution.
+        const s = makeStore();
+        s.reserveIdempotent('ws', 'agent:a', 'k', 'h', NOW, MIN);
+        s.completeIdempotent('ws', 'agent:a', 'k', '{"ok":1}', NOW);
+        s.releaseIdempotent('ws', 'agent:a', 'k');
+        expect(s.findIdempotent('ws', 'agent:a', 'k')).not.toBeNull();
+      });
+
+      it('reclaims a reservation older than the stale window', () => {
+        const s = makeStore();
+        const old = new Date(NOW.getTime() - 10 * MIN);
+        s.reserveIdempotent('ws', 'agent:a', 'k', 'h', old, MIN);
+        expect(s.reserveIdempotent('ws', 'agent:a', 'k', 'h', NOW, MIN).kind).toBe('reserved');
+      });
+
+      it('scopes reservations by workspace and agent', () => {
+        const s = makeStore();
+        s.reserveIdempotent('ws', 'agent:a', 'k', 'h', NOW, MIN);
+        expect(s.reserveIdempotent('ws_other', 'agent:a', 'k', 'h', NOW, MIN).kind).toBe(
+          'reserved',
+        );
+        expect(s.reserveIdempotent('ws', 'agent:b', 'k', 'h', NOW, MIN).kind).toBe('reserved');
+      });
+    });
+
     describe('audit', () => {
       const row = (hash: string, prevHash: string) => ({
         workspace: 'ws',

@@ -2,7 +2,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DatabaseSync } from 'node:sqlite';
 import { openStore, type SqliteStore } from './store.js';
+import { MIGRATIONS } from './migrations.js';
 import type { AgentRecord } from '../../ports/index.js';
 import type { TaskState } from '@agentbridge/contracts';
 
@@ -252,5 +254,64 @@ describe('listTasksByState', () => {
     const got = s.listTasksByState('ws', 'needs-approval', 10)[0];
     expect(got?.payload).toEqual({ to: 'a@b.com' });
     expect(got?.payloadHash).toBe('f'.repeat(64));
+  });
+});
+
+describe('migration 004 — the idempotency rebuild', () => {
+  /**
+   * Builds a database at schema version 3, as an existing deployment would
+   * be, with a completed idempotency record in the old shape.
+   *
+   * Migration 004 rebuilds that table (SQLite cannot drop a NOT NULL), and a
+   * rebuild that lost rows would silently turn every in-flight idempotency
+   * key back into a re-executable request on the next deploy — exactly once
+   * becoming twice, once, at upgrade.
+   */
+  function v3Database(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'ab-mig-'));
+    const path = join(dir, 'v3.sqlite');
+    const raw = new DatabaseSync(path);
+    raw.exec('CREATE TABLE IF NOT EXISTS schema_version (id INTEGER PRIMARY KEY)');
+    for (const m of MIGRATIONS.filter((x) => x.id <= 3)) {
+      raw.exec(m.sql);
+      raw.prepare('INSERT INTO schema_version (id) VALUES (?)').run(m.id);
+    }
+    raw
+      .prepare(
+        `INSERT INTO idempotency (workspace, agent, key, request_hash, response, created_at)
+         VALUES (?,?,?,?,?,?)`,
+      )
+      .run('ws', 'agent:a', 'k1', 'hash-1', '{"id":"tsk_1"}', '2026-10-20T12:00:00.000Z');
+    raw.close();
+    return path;
+  }
+
+  it('carries existing records across the rebuild', () => {
+    const path = v3Database();
+    const s = openStore(path);
+    open.push(s);
+    expect(s.findIdempotent('ws', 'agent:a', 'k1')).toEqual({
+      requestHash: 'hash-1',
+      response: '{"id":"tsk_1"}',
+    });
+  });
+
+  it('treats a migrated record as completed, not as a reservation', () => {
+    // If the rebuild left them looking unfinished, every one would be
+    // re-executable the moment someone retried.
+    const path = v3Database();
+    const s = openStore(path);
+    open.push(s);
+    const outcome = s.reserveIdempotent('ws', 'agent:a', 'k1', 'hash-1', new Date(), 60_000);
+    expect(outcome.kind).toBe('replay');
+  });
+
+  it('leaves the upgraded database able to take new reservations', () => {
+    const path = v3Database();
+    const s = openStore(path);
+    open.push(s);
+    expect(s.reserveIdempotent('ws', 'agent:a', 'k2', 'h2', new Date(), 60_000).kind).toBe(
+      'reserved',
+    );
   });
 });

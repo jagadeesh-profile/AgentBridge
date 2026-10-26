@@ -9,6 +9,7 @@ export type {
   MessageRecord,
   OutboxRow,
   PushConfigRow,
+  ReservationOutcome,
   Store,
   TaskRecord,
   ThreadRecord,

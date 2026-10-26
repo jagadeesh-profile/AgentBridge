@@ -110,6 +110,14 @@ export interface OutboxRow {
   createdAt: string;
 }
 
+export type ReservationOutcome =
+  /** This caller holds the reservation and must run the body. */
+  | { kind: 'reserved' }
+  /** A completed record exists; replay it rather than re-executing. */
+  | { kind: 'replay'; hit: IdempotencyHit }
+  /** Another caller is running it right now. */
+  | { kind: 'in-flight' };
+
 export interface IdempotencyHit {
   response: string;
   requestHash: string;
@@ -205,6 +213,29 @@ export interface Store {
 
   // idempotency
   findIdempotent(workspace: string, agent: string, key: string): IdempotencyHit | null;
+  /**
+   * Claims the key BEFORE the body runs, so a second process cannot also run
+   * it. `staleAfterMs` reclaims a reservation whose holder died — otherwise a
+   * crash would wedge that key permanently.
+   */
+  reserveIdempotent(
+    workspace: string,
+    agent: string,
+    key: string,
+    requestHash: string,
+    now: Date,
+    staleAfterMs: number,
+  ): ReservationOutcome;
+  /** Attaches the response to a reservation this caller holds. */
+  completeIdempotent(
+    workspace: string,
+    agent: string,
+    key: string,
+    response: string,
+    now: Date,
+  ): void;
+  /** Drops a reservation whose body threw, so a genuine retry can proceed. */
+  releaseIdempotent(workspace: string, agent: string, key: string): void;
   /** Returns false if the key already exists — the caller then reads it back. */
   tryPutIdempotent(
     workspace: string,

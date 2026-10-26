@@ -123,8 +123,39 @@ CREATE TABLE IF NOT EXISTS a2a_push (
 CREATE INDEX IF NOT EXISTS a2a_push_agent ON a2a_push (workspace, agent_ref);
 `;
 
+/**
+ * Idempotency becomes a RESERVATION rather than a record of what happened.
+ *
+ * The old shape stored the response only after `fn()` had run, so two
+ * processes could both find no record, both execute — the effect happening
+ * twice — and only the second *response* be discarded. CLAUDE.md §1.4 asks for
+ * exactly-once effect, not exactly-once response. In-process coalescing hid
+ * this while the hub was one container; it stops working the moment delivery
+ * splits out, which is the Phase 1 topology.
+ *
+ * `response` is therefore nullable: a row with NULL means "someone is running
+ * this right now". `reserved_at` lets a reservation left behind by a crashed
+ * process be reclaimed instead of wedging that key forever.
+ *
+ * Rebuilt rather than ALTERed because SQLite cannot drop a NOT NULL. Existing
+ * rows are preserved as completed, which they are.
+ */
+const MIGRATION_004 = `
+CREATE TABLE idempotency_v2 (
+  workspace TEXT NOT NULL, agent TEXT NOT NULL, key TEXT NOT NULL,
+  request_hash TEXT NOT NULL, response TEXT, reserved_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (workspace, agent, key)
+);
+INSERT INTO idempotency_v2 (workspace, agent, key, request_hash, response, reserved_at, created_at)
+  SELECT workspace, agent, key, request_hash, response, created_at, created_at FROM idempotency;
+DROP TABLE idempotency;
+ALTER TABLE idempotency_v2 RENAME TO idempotency;
+`;
+
 export const MIGRATIONS: readonly { readonly id: number; readonly sql: string }[] = [
   { id: 1, sql: MIGRATION_001 },
   { id: 2, sql: MIGRATION_002 },
   { id: 3, sql: MIGRATION_003 },
+  { id: 4, sql: MIGRATION_004 },
 ];

@@ -534,21 +534,73 @@ export function openStore(path: string): SqliteStore {
     findIdempotent(workspace, agent, key) {
       const r = db
         .prepare(
-          'SELECT request_hash, response FROM idempotency WHERE workspace=? AND agent=? AND key=?',
+          `SELECT request_hash, response FROM idempotency
+           WHERE workspace=? AND agent=? AND key=? AND response IS NOT NULL`,
         )
         .get(workspace, agent, key);
       if (!r) return null;
       const row = r as Row;
       return { requestHash: str(row.request_hash), response: str(row.response) };
     },
+
+    /**
+     * One statement decides the race. INSERT ... ON CONFLICT DO UPDATE with a
+     * WHERE clause claims the row only when it is free — unreserved, or
+     * reserved so long ago the holder must be gone — so two processes
+     * attempting it concurrently cannot both win.
+     */
+    reserveIdempotent(workspace, agent, key, requestHash, now, staleAfterMs) {
+      const nowIso = now.toISOString();
+      const staleBefore = new Date(now.getTime() - staleAfterMs).toISOString();
+      const res = db
+        .prepare(
+          `INSERT INTO idempotency (workspace, agent, key, request_hash, response,
+             reserved_at, created_at)
+           VALUES (?,?,?,?,NULL,?,?)
+           ON CONFLICT (workspace, agent, key) DO UPDATE SET
+             reserved_at = excluded.reserved_at,
+             request_hash = excluded.request_hash
+           WHERE idempotency.response IS NULL AND idempotency.reserved_at < ?`,
+        )
+        .run(workspace, agent, key, requestHash, nowIso, nowIso, staleBefore);
+
+      if (num(res.changes) === 1) return { kind: 'reserved' };
+
+      const existing = store.findIdempotent(workspace, agent, key);
+      if (existing) return { kind: 'replay', hit: existing };
+      return { kind: 'in-flight' };
+    },
+
+    completeIdempotent(workspace, agent, key, response, now) {
+      db.prepare(
+        `UPDATE idempotency SET response=?, created_at=?
+         WHERE workspace=? AND agent=? AND key=?`,
+      ).run(response, now.toISOString(), workspace, agent, key);
+    },
+
+    releaseIdempotent(workspace, agent, key) {
+      // Only an uncompleted reservation: a completed record must survive.
+      db.prepare(
+        'DELETE FROM idempotency WHERE workspace=? AND agent=? AND key=? AND response IS NULL',
+      ).run(workspace, agent, key);
+    },
     /** The database decides the race, closing the read-then-write window. */
     tryPutIdempotent(workspace, agent, key, requestHash, response) {
       const res = db
         .prepare(
-          `INSERT INTO idempotency (workspace, agent, key, request_hash, response, created_at)
-           VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
+          `INSERT INTO idempotency (workspace, agent, key, request_hash, response,
+             reserved_at, created_at)
+           VALUES (?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
         )
-        .run(workspace, agent, key, requestHash, response, new Date(0).toISOString());
+        .run(
+          workspace,
+          agent,
+          key,
+          requestHash,
+          response,
+          new Date(0).toISOString(),
+          new Date(0).toISOString(),
+        );
       return num(res.changes) === 1;
     },
 

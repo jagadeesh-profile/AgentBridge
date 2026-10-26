@@ -20,7 +20,7 @@ see "Verification debt".
 | Command | Result |
 |---|---|
 | `pnpm --filter @agentbridge/console run build` | **compiles** |
-| `make check` — lint, `tsc --strict`, unit, contract-drift | **582 tests** |
+| `make check` — lint, `tsc --strict`, unit, contract-drift | **602 tests** |
 | `make test-e2e` — real hub, SQLite on disk, delivery worker | **24 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests**, re-run against a freshly built image after the console work |
 | `make conformance` — MCP tool surface | **8 tests** |
@@ -81,7 +81,7 @@ see "Verification debt".
 | ADRs 0001–0005 | ✅ written |
 | `docs/TASKS.md` | ✅ this file |
 | OpenTelemetry exporter | ✅ OTLP/HTTP; verified against a live collector receiving spans in the caller's trace |
-| `withIdempotency` durable reservation | ⬜ Phase 1, once delivery splits into its own process |
+| `withIdempotency` durable reservation | ✅ done in Phase 1 — see below |
 | Owner-key-signed registration | ✅ ADR 0005; replaces the shared token, contract 0.3.0 (breaking) |
 | `agent.register` audited against the owner, not the new agent | ✅ ADR 0005 follow-up |
 | Clock drift named in the refusal instead of a bare `unauthenticated` | ✅ ADR 0005 follow-up; the only disclosed `unauthenticated` detail |
@@ -115,7 +115,7 @@ see "Verification debt".
 | **Python SDK (FR-18)** | ✅ canonicalization, signing, client, pull-inbox handler; byte-identical to TS by generated vectors |
 | Python SDK — async, webhook receiver, OwnerClient | ⬜ not ported; no Python agent needs owner operations |
 | OAuth 2.1 / mTLS | ⬜ ADR 0002 defers these here |
-| `withIdempotency` durable reservation | ⬜ needed once delivery splits into its own process |
+| **`withIdempotency` durable reservation** | ✅ reserves before the body runs; proven across two processes on one database; migration 004 |
 
 ## What TDD caught that the plan got wrong
 

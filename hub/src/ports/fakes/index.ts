@@ -11,6 +11,7 @@ import type {
   MessageRecord,
   OutboxRow,
   PushConfigRow,
+  ReservationOutcome,
   Signer,
   Store,
   TaskRecord,
@@ -58,6 +59,13 @@ class FakeSigner implements Signer {
 
 const key = (workspace: string, id: string): string => `${workspace}/${id}`;
 
+/** A reservation (response null) or a completed record. */
+interface IdempotencyRow {
+  requestHash: string;
+  response: string | null;
+  reservedAt: string;
+}
+
 /**
  * Map-backed Store. `transaction` snapshots every collection and restores the
  * snapshots on throw, so rollback semantics match SQLite — which is what makes
@@ -72,7 +80,7 @@ export class FakeStore implements Store {
   private approvals = new Map<string, ApprovalRecord>();
   private audit: AuditRow[] = [];
   private outbox = new Map<string, OutboxRow>();
-  private idempotency = new Map<string, IdempotencyHit>();
+  private idempotency = new Map<string, IdempotencyRow>();
   private nonces = new Map<string, string>();
   private pushConfigs = new Map<string, PushConfigRow>();
   private depth = 0;
@@ -186,6 +194,51 @@ export class FakeStore implements Store {
         .slice(0, limit)
         .map((t) => ({ ...t }))
     );
+  }
+
+  reserveIdempotent(
+    workspace: string,
+    agent: string,
+    key: string,
+    requestHash: string,
+    now: Date,
+    staleAfterMs: number,
+  ): ReservationOutcome {
+    const k = `${workspace}/${agent}/${key}`;
+    const existing = this.idempotency.get(k);
+    if (existing !== undefined && existing.response !== null) {
+      return {
+        kind: 'replay',
+        hit: { response: existing.response, requestHash: existing.requestHash },
+      };
+    }
+    if (existing !== undefined) {
+      // A reservation whose holder died must become reclaimable, or that key
+      // is wedged forever.
+      const stale = Date.parse(existing.reservedAt) < now.getTime() - staleAfterMs;
+      if (!stale) return { kind: 'in-flight' };
+    }
+    this.idempotency.set(k, {
+      requestHash,
+      response: null,
+      reservedAt: now.toISOString(),
+    });
+    return { kind: 'reserved' };
+  }
+  completeIdempotent(
+    workspace: string,
+    agent: string,
+    key: string,
+    response: string,
+    _now: Date,
+  ): void {
+    const k = `${workspace}/${agent}/${key}`;
+    const existing = this.idempotency.get(k);
+    if (existing) this.idempotency.set(k, { ...existing, response });
+  }
+  releaseIdempotent(workspace: string, agent: string, key: string): void {
+    const k = `${workspace}/${agent}/${key}`;
+    if (this.idempotency.get(k)?.response === null) this.idempotency.delete(k);
   }
 
   putPushConfig(row: PushConfigRow): void {
@@ -344,7 +397,10 @@ export class FakeStore implements Store {
   }
 
   findIdempotent(workspace: string, agent: string, k: string): IdempotencyHit | null {
-    return this.idempotency.get(`${workspace}/${agent}/${k}`) ?? null;
+    // A bare reservation is not a hit: nothing has been decided yet.
+    const row = this.idempotency.get(`${workspace}/${agent}/${k}`);
+    if (row === undefined || row.response === null) return null;
+    return { requestHash: row.requestHash, response: row.response };
   }
   tryPutIdempotent(
     workspace: string,
@@ -355,7 +411,7 @@ export class FakeStore implements Store {
   ): boolean {
     const id = `${workspace}/${agent}/${k}`;
     if (this.idempotency.has(id)) return false;
-    this.idempotency.set(id, { requestHash, response });
+    this.idempotency.set(id, { requestHash, response, reservedAt: new Date(0).toISOString() });
     return true;
   }
 
