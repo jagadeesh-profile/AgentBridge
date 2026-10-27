@@ -262,3 +262,47 @@ describe('OwnerClient task board', () => {
     expect(row?.actor).toBe('owner');
   });
 });
+
+describe('workspace whitespace', () => {
+  /**
+   * Reported from the running local deploy: the hub refused the owner key with
+   * `unauthenticated`, while the key was the configured owner key, the clock
+   * had zero skew, and the workspace name looked right.
+   *
+   * The cause is that the OWNER descriptor signs the workspace, and HTTP
+   * strips whitespace from around a header value in transit. Sign `"ws "` and
+   * the hub recomputes with `"ws"`; the signature cannot verify. Copy-pasting
+   * a workspace id out of a terminal is enough to do it, and the console's
+   * workspace box is free text.
+   *
+   * What made it expensive is the error: `unauthenticated` is rendered by the
+   * console as "check the workspace name, that this is the owner key, and that
+   * your clock is right", and all three were correct. The guidance pointed
+   * away from the fault.
+   */
+  it('accepts a workspace with a trailing space, as copy-paste produces', async () => {
+    const padded = new OwnerClient({
+      baseUrl: owner.baseUrl,
+      workspace: 'ws ',
+      privateKey: ownerPriv,
+    });
+    await expect(padded.listPendingApprovals()).resolves.toBeInstanceOf(Array);
+  });
+
+  it('accepts a leading space too', async () => {
+    const padded = new OwnerClient({
+      baseUrl: owner.baseUrl,
+      workspace: ' ws',
+      privateKey: ownerPriv,
+    });
+    await expect(padded.listPendingApprovals()).resolves.toBeInstanceOf(Array);
+  });
+
+  it('refuses a workspace that is only whitespace, rather than signing nothing', async () => {
+    // An empty workspace would otherwise sign and send "", which the hub reads
+    // as a missing header — another `unauthenticated` with no useful cause.
+    expect(
+      () => new OwnerClient({ baseUrl: owner.baseUrl, workspace: '   ', privateKey: ownerPriv }),
+    ).toThrow(/cannot be only whitespace/);
+  });
+});

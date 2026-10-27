@@ -107,8 +107,23 @@ export class Client {
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
   private readonly now: () => Date;
+  private readonly workspace: string;
+  private readonly agent: string;
 
   constructor(private readonly opts: ClientOptions) {
+    // Trimmed for the reason spelled out in OwnerClient: HTTP strips
+    // whitespace around a header value, so a padded id signed or looked up
+    // verbatim disagrees with what the hub receives.
+    //
+    // The agent descriptor does not sign the workspace, so the failure here is
+    // milder but just as confusing: the hub looks up (workspace, ref), the
+    // trimmed pair matches no agent, and the answer is `unauthenticated` —
+    // pointing at the key, when the key was never the problem.
+    this.workspace = opts.workspace.trim();
+    this.agent = opts.agent.trim();
+    if (this.workspace === '' || this.agent === '') {
+      throw new TypeError('workspace and agent are required and cannot be only whitespace');
+    }
     // Bound for the same reason as OwnerClient: an unbound global called as
     // `this.fetchImpl(...)` fails in a browser, and this client is usable
     // from one even though Phase 0 only runs it in Node.
@@ -119,7 +134,7 @@ export class Client {
   }
 
   get ref(): string {
-    return this.opts.agent;
+    return this.agent;
   }
 
   async send(input: {
@@ -323,8 +338,8 @@ export class Client {
           method,
           headers: {
             'content-type': 'application/json',
-            'x-agentbridge-workspace': this.opts.workspace,
-            'x-agentbridge-agent': this.opts.agent,
+            'x-agentbridge-workspace': this.workspace,
+            'x-agentbridge-agent': this.agent,
             'x-agentbridge-timestamp': timestamp,
             'x-agentbridge-signature': signature,
             // Deliberately outside the signed descriptor, which covers method,

@@ -121,8 +121,27 @@ export class OwnerClient {
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
   private readonly now: () => Date;
+  /**
+   * Trimmed, because the owner descriptor **signs** the workspace while HTTP
+   * strips whitespace from around a header value in transit (RFC 9110 field
+   * values carry no surrounding OWS). Sign `"ws_local "` and the hub
+   * recomputes the descriptor with `"ws_local"`: the signature cannot verify,
+   * and the hub answers `unauthenticated`.
+   *
+   * The symptom is miserable to diagnose, which is why this is fixed rather
+   * than documented. The console's error then reads "check the workspace name,
+   * that this is the owner key, and that your clock is right" — and the key,
+   * the clock and the visible name are all correct. A trailing space from
+   * copy-pasting a workspace id out of a terminal is enough, and the console's
+   * workspace box is free text, so that is the normal way to fill it.
+   */
+  private readonly workspace: string;
 
   constructor(private readonly opts: OwnerClientOptions) {
+    this.workspace = opts.workspace.trim();
+    if (this.workspace === '') {
+      throw new TypeError('workspace is required and cannot be only whitespace');
+    }
     // Bound: stored on the instance and called as `this.fetchImpl(...)`, the
     // global would arrive with `this` set to this object, which a browser
     // rejects outright ("Illegal invocation"). Node does not care, so nothing
@@ -189,7 +208,7 @@ export class OwnerClient {
     const res = await this.request<{ items: WireAuditRow[] }>('GET', `/v1/audit?limit=${limit}`);
     const rows = res.items.map((r) => ({
       seq: r.seq,
-      workspace: this.opts.workspace,
+      workspace: this.workspace,
       action: r.action,
       actor: r.actor,
       subject: r.subject,
@@ -282,7 +301,7 @@ export class OwnerClient {
         path,
         query,
         body,
-        workspace: this.opts.workspace,
+        workspace: this.workspace,
         issuedAt,
       }),
       this.opts.privateKey,
@@ -295,7 +314,7 @@ export class OwnerClient {
       method,
       headers: {
         'content-type': 'application/json',
-        'x-agentbridge-workspace': this.opts.workspace,
+        'x-agentbridge-workspace': this.workspace,
         'x-agentbridge-timestamp': issuedAt,
         'x-agentbridge-owner-signature': signature,
       },

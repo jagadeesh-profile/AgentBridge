@@ -52,3 +52,6 @@ sdk/python/*.egg-info/
 # CDK synthesis output — a build artifact, never committed.
 cdk.out/
 infra/cdk.out/
+
+# Tool cache written by the impeccable design hook.
+.impeccable/

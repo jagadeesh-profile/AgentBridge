@@ -10,10 +10,10 @@ import {
   type PendingTask,
 } from '@agentbridge/sdk/owner';
 import type { AuditVerification } from '@agentbridge/contracts';
-import { OwnerKeyError, parseOwnerKey, wipeKey } from '@/lib/owner-key';
-import { Agents } from '@/components/agents';
-import { Board } from '@/components/board';
-import { Audit } from '@/components/audit';
+import { OwnerKeyError, parseOwnerKey, wipeKey } from '../lib/owner-key';
+import { Agents } from '../components/agents';
+import { Board } from '../components/board';
+import { Audit } from '../components/audit';
 
 /**
  * The approvals queue.
@@ -62,7 +62,7 @@ export default function ApprovalsPage() {
       setError(null);
     } catch (err) {
       setTasks(null);
-      setError(describe(err));
+      setError(describeError(err));
     }
   }, []);
 
@@ -100,7 +100,7 @@ export default function ApprovalsPage() {
       setAudit({ rows: log.rows, verification: log.verification, dead });
     } catch (err) {
       wipeKey(key);
-      setError(describe(err));
+      setError(describeError(err));
       return;
     }
     setSession({ client, key, workspace: ws });
@@ -125,7 +125,7 @@ export default function ApprovalsPage() {
       await session.client.decide(task, decision);
       await refresh(session.client);
     } catch (err) {
-      setError(describe(err));
+      setError(describeError(err));
       // Re-read regardless: an approval_hash_mismatch means the payload moved
       // under us, and the stale copy on screen is the thing not to act on.
       await refresh(session.client);
@@ -313,11 +313,31 @@ export default function ApprovalsPage() {
   );
 }
 
-function describe(err: unknown): string {
+/**
+ * Turns a hub error into something the owner can act on.
+ *
+ * Exported for `page.test.tsx`. The `unauthenticated` wording below is the
+ * reason: it used to read "check the workspace name, that this is the owner
+ * key, and that your clock is right", and that cost real time when a
+ * whitespace bug produced it — the key was right, the clock had zero skew,
+ * and the name looked right, so every suggestion pointed away from the fault.
+ *
+ * Naming the workspace was not merely unhelpful, it was wrong. Owner auth
+ * verifies a signature against the hub's configured owner key and does not
+ * consult the workspace at all, so a *wrong* workspace authenticates
+ * perfectly and returns an empty list. It cannot cause this error. Only two
+ * things can, and the message now says just those two.
+ */
+export function describeError(err: unknown): string {
   if (err !== null && typeof err === 'object' && 'code' in err) {
     const code = String((err as { code: unknown }).code);
     if (code === 'unauthenticated') {
-      return 'The hub refused that key for this workspace. Check the workspace name, that this is the owner key, and that your clock is right.';
+      return (
+        'The hub rejected the owner signature. Either this is not the key the hub ' +
+        'was started with (AGENTBRIDGE_OWNER_PUBLIC_KEY), or your clock is off by ' +
+        'more than 5 minutes. A wrong workspace is not the cause — that would show ' +
+        'an empty list rather than this error.'
+      );
     }
     if (code === 'approval_hash_mismatch') {
       return 'The payload changed after this page loaded, so the decision was refused. The list below is current — review it again.';
