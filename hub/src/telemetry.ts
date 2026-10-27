@@ -166,12 +166,54 @@ export async function flushTelemetry(): Promise<void> {
   await provider.forceFlush();
 }
 
-export async function shutdownTelemetry(): Promise<void> {
+/** How long shutdown will wait for pending spans before giving up on them. */
+export const TELEMETRY_SHUTDOWN_TIMEOUT_MS = 2_000;
+
+/**
+ * Tears the provider down. **Never rejects, and never blocks for long.**
+ *
+ * Both of those are deliberate, and both were defects until the OTLP export
+ * suite exercised a collector that was down.
+ *
+ * `provider.shutdown()` flushes pending spans, so an unreachable collector
+ * makes it reject after the exporter exhausts its retries — around eight
+ * seconds. The composition root awaited it between `app.close()` and
+ * `store.close()`, under a `process.on('SIGTERM', () => void shutdown(...))`
+ * that discards the promise. So a tracing backend being down meant: an
+ * unhandled rejection, `store.close()` never reached, `process.exit(0)` never
+ * reached, and the orchestrator eventually sending SIGKILL — an unclean SQLite
+ * close on every deploy, caused by something outside the hub entirely. Under
+ * ADR 0010's stop-before-start deploys that is the worst available outcome.
+ *
+ * Tracing is not a correctness dependency. Losing the last few spans is an
+ * acceptable price for closing the database properly, so the result is
+ * reported rather than thrown, and the caller decides whether to log it.
+ */
+export async function shutdownTelemetry(
+  timeoutMs = TELEMETRY_SHUTDOWN_TIMEOUT_MS,
+): Promise<{ flushed: boolean; reason?: string }> {
   const current = provider;
   provider = null;
   active = { enabled: false, tracer: null };
-  if (current === null) return;
-  await current.shutdown();
+  if (current === null) return { flushed: true };
+
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      current.shutdown(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs);
+        // Do not hold the event loop open on this timer: shutdown is the one
+        // moment a stray handle keeps the process alive.
+        timer.unref();
+      }),
+    ]);
+    return { flushed: true };
+  } catch (err) {
+    return { flushed: false, reason: err instanceof Error ? err.message : String(err) };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 /** A non-recording parent whose trace id is ours, so the span joins that trace. */

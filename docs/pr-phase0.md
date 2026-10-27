@@ -33,6 +33,8 @@ make infra-synth                               # cdk synth only — never deploy
 | `make test-container` — the real Docker image, HTTP only | **20 tests** |
 | `make test-aws` — S3 `BlobStore` vs LocalStack | **24 tests** |
 | `make test-python` — Python SDK, cross-language vectors + a real hub | **20 tests** |
+| `make test-otel` — OTLP export to an in-process receiver (in CI) | **9 tests** |
+| `make test-otel-collector` — the real OpenTelemetry Collector | span accepted **and** its trace id found in the collector's log |
 | `make infra-synth` — `cdk synth` | 740-line template, **23 assertions** on it |
 | `pnpm --filter @agentbridge/console run build` | compiles |
 
@@ -44,9 +46,8 @@ port.
 
 Tracing exports over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and
 the caller's `trace_id` becomes the real OTel trace id so one trace spans both
-agents. The attribute allowlist is unit-tested; the collector round trip was
-observed once by hand and is not reproducible from the repo — see "Observed
-once" below.
+agents. Both the export and the real-collector round trip are now tested — see
+"OTLP export" below.
 
 ## Architecture
 
@@ -269,6 +270,19 @@ failing-first test, plus the five A2A defects above. The full table is in
 - `fetch` was stored unbound on both SDK clients. Node tolerates it; a browser
   rejects it outright. Only running the console in a real page caught it, and
   the regression test asserts the receiver so it now fails in Node too.
+- **A down tracing backend left SQLite unclosed on every deploy.**
+  `provider.shutdown()` flushes, so an unreachable collector made it reject
+  after ~8s of exporter retries. The composition root awaited that between
+  `app.close()` and `store.close()`, under
+  `process.on('SIGTERM', () => void shutdown(...))` — which discards the
+  promise, so on Node 24 the unhandled rejection ended the process with
+  `store.close()` and `process.exit(0)` both unreached, leaving the
+  orchestrator to SIGKILL it. Under ADR 0010's stop-before-start deploys that
+  is the worst available outcome, and the cause was entirely outside the hub.
+  `shutdownTelemetry` now never rejects and is bounded at 2s, reporting
+  `{ flushed, reason }` so the root can log dropped spans; the root wraps
+  shutdown in `try/finally` so nothing can skip closing the database. Found by
+  the one test in the new suite that turns the collector off.
 
 ### Four security fixes, and the guard that should have prevented three of them
 
@@ -301,6 +315,7 @@ conformance suite that has never been seen to fail is decoration:
 | A2A conformance | emit a non-A2A task state; renumber `methodNotFound`; blank the provenance notice | 1, 2 and 1 failures |
 | Console components | render the payload on the board; flag only the broken audit row instead of every row after it; drop the kill switch's typed-name guard | 1, 1 and 3 failures |
 | Console type-checking in the gate | reintroduce the mock-return-type error that had survived a green `check` | `lint` exits 1 |
+| OTLP export | stop parenting the span on the caller's trace id; leak the body via a direct `span.setAttributes` | 1 failure each |
 
 Beyond mutation, and still automated:
 
@@ -346,14 +361,35 @@ shape would compile, and the test would then assert against a fiction. The
 literals are now checked against `Partial<OwnerClient>` before the cast, which
 confines it to "methods are missing" rather than "methods are wrong".
 
+### OTLP export, now tested at two levels
+
+The last code-shaped item off the "observed once" list. `make test-otel` runs
+the real OTLP exporter against a receiver started in process — no Docker, so it
+is in CI's main job — and asserts on the bytes: spans reach `/v1/traces`, the
+**caller's** trace id is the exported trace id, the id is never the invalid
+all-zero one, no attribute carries a message body, `/healthz` is not traced,
+and span names carry the route rather than the URL.
+
+It covers a genuine gap rather than restating the unit tests. `initTelemetry`
+picks `SimpleSpanProcessor` for an injected exporter and `BatchSpanProcessor`
+for a configured endpoint — so the 22 existing telemetry tests, which inject
+`InMemorySpanExporter`, exercise **neither the OTLP exporter nor the batch
+processor**. Production uses both, and two defects in the table above lived
+exactly there.
+
+`make test-otel-collector` then sends to the **real OpenTelemetry Collector**,
+because a stub receiver accepts whatever the exporter produces and so cannot
+answer whether a real collector would. The script starts the pinned image, runs
+the suite, and greps the collector's own log for the random trace id it sent —
+"returned 2xx" and "parsed the span and kept the trace id" being different
+claims, only the second of which rules out accept-and-discard. It exits
+non-zero rather than skipping when the collector is absent. Its own CI job,
+since it needs Docker.
+
 ### Observed once, with no artifact a reviewer can re-run
 
-Two left, and they stay on this list honestly:
+One left, and it stays on this list honestly:
 
-- **OTLP export was verified against a live collector**, with spans arriving
-  under the caller's trace id, no body-bearing attribute and no span for
-  `/healthz`. The allowlist is unit-tested; the collector round trip is not.
-  Closing it means a collector in CI.
 - **One unreproduced e2e flake**: 1 of 24 failed once in a combined run, with 13
   consecutive clean runs since and none during this session's work. Cause
   unknown, possibly ephemeral-port reuse.

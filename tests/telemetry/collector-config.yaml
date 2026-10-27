@@ -1,0 +1,27 @@
+# Minimal OpenTelemetry Collector config for the wire-compatibility check.
+#
+# Only the OTLP/HTTP receiver the hub exports to, and the `debug` exporter,
+# whose output goes to the container's stdout — which is what
+# scripts/test-otel-collector.mjs greps for the trace id it sent. `debug` is in
+# the core image, so this needs no contrib build.
+#
+# detailed verbosity is required: the default prints counts only, and a count
+# cannot tell you whether the trace id survived the round trip.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [debug]

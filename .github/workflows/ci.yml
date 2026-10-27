@@ -15,4 +15,33 @@ jobs:
       - run: make check
       - run: make test-e2e
       - run: make conformance
+      # Spans leaving the hub over OTLP/HTTP, against an in-process receiver.
+      # Needs no Docker, so it belongs in the main job rather than beside the
+      # collector check below.
+      - run: make test-otel
       - run: pnpm audit --audit-level=high
+
+  # The REAL OpenTelemetry Collector. Separate because it needs Docker and
+  # because its failure mode is distinct: `test-otel` proves the hub's
+  # behaviour, this proves a real collector accepts what the hub sends. A stub
+  # receiver accepts whatever the exporter produces, so it cannot tell us that
+  # — it would stay green while nothing reached a real backend.
+  #
+  # Not a `services:` container: the collector needs its config file mounted
+  # from the checkout, which service containers cannot do.
+  telemetry-collector:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@eef61447b9ff4aa938611f1a1e4f0bbe3dee3fbd # v4.2.1
+      - uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2 # v4.0.0
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: make setup
+      # The script starts the pinned collector image, runs the export suite
+      # against it, and then greps the collector's own log for the random trace
+      # id it sent — so "the collector returned 2xx" and "the collector kept
+      # the trace id" are checked separately. It exits non-zero rather than
+      # skipping when the collector never comes up.
+      - run: make test-otel-collector

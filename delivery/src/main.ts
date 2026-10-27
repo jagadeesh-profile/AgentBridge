@@ -112,9 +112,22 @@ async function main(): Promise<void> {
     closing = true;
     app.log.info({ signal }, 'shutting down');
     worker?.stop();
-    await app.close();
-    await shutdownTelemetry();
-    store.close();
+    // try/finally so that nothing between here and `store.close()` can leave
+    // the database open. The signal handlers below discard this promise, so a
+    // rejection would be an unhandled one — which on Node 24 ends the process
+    // immediately, skipping the close. SQLite on EFS under single-writer
+    // deploys (ADR 0010) is the last thing that should be killed mid-write.
+    try {
+      await app.close();
+      const t = await shutdownTelemetry();
+      if (!t.flushed) {
+        app.log.warn({ reason: t.reason }, 'telemetry did not flush; spans were dropped');
+      }
+    } catch (err) {
+      app.log.error({ err }, 'shutdown step failed; closing the database anyway');
+    } finally {
+      store.close();
+    }
     process.exit(0);
   };
   process.on('SIGTERM', () => void shutdown('SIGTERM'));

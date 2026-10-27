@@ -9,8 +9,20 @@ packages:
   - examples/*
   - tests
   - infra
+# esbuild arrives transitively through vite -> vitest and ships a postinstall
+# that downloads a platform binary. pnpm wrote this key with a
+# "set this to true or false" placeholder and then failed every install until
+# someone decided — which broke `make setup`, and therefore the container
+# build and all of CI. It surfaced when a dependency change pulled vite 7 in
+# beside vite 8; the container suite caught it, `make check` did not.
+#
+# `false`, because nothing here executes esbuild: vitest 5 bundles with
+# rolldown, and the console's JSX transform works with esbuild's binary never
+# built. That is the evidence rather than the assumption — and running a
+# postinstall we have no use for is pure supply-chain surface.
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: false
+
 minimumReleaseAgeExclude:
   - '@opentelemetry/api@1.10.0'
   - '@opentelemetry/core@3.0.0'

@@ -35,7 +35,12 @@ beforeAll(async () => {
   const musePriv = await h.register('muse', ['read', 'message', 'write_artifact']);
   claude = h.client('claude', claudePriv);
   muse = h.client('muse', musePriv);
-}, 180_000);
+  // 300s, matching the config's hookTimeout rather than undercutting it. A
+  // cold `docker build` of this image takes ~100s with a warm layer cache and
+  // comfortably more without one; at 180s a lockfile change was enough to
+  // time out, and the suite then reported "20 skipped" with exit 1 — which
+  // reads like Docker was missing rather than like the build ran out of time.
+}, 300_000);
 
 afterAll(async () => {
   if (available) await h.stop();

@@ -21,7 +21,9 @@ see "Verification debt".
 |---|---|
 | `pnpm --filter @agentbridge/console run build` | **compiles** |
 | `make check` — lint, `tsc --strict`, unit, contract-drift | **666 tests** + 1 skip (the S3 half, when LocalStack is down — by design) |
-| `make conformance` — MCP + A2A v1.0 | **47 tests** |
+| `make conformance` — MCP + A2A v1.0 | **48 tests** |
+| `make test-otel` — OTLP export to an in-process receiver (in CI) | **9 tests** + 2 skips (the real-collector half) |
+| `make test-otel-collector` — the real OpenTelemetry Collector | span accepted, and its random trace id found in the collector's own log |
 | `make test-aws` — S3 adapter vs LocalStack | **24 tests**; fails rather than skips if LocalStack is absent |
 | `make infra-synth` — `cdk synth` only, never deploy (§7) | **740-line template**, 23 assertions on it |
 | `make test-python` — Python SDK | **20 tests** |
@@ -125,6 +127,9 @@ see "Verification debt".
 | **S3 wired into the composition root** | ✅ `AGENTBRIDGE_ARTIFACT_BUCKET` selects S3, else the filesystem. Credentials come from the task role, so §1.6 still holds |
 | **ADR 0010 — single-writer Phase 1** | ✅ the owner's decision, the deploy-time two-writer hazard, and the ~$29/month cost shape against §7's $50 threshold |
 | **Console component tests** | ✅ 26 cases under jsdom over board, audit and agents — the surfaces previously verified only by clicking. Mutation-checked: rendering a payload, flagging one audit row instead of all after the break, and dropping the typed-name guard each fail. No new dependency for JSX (the bundler's own transform, not `@vitejs/plugin-react`, whose esbuild install script the supply-chain policy blocks) |
+| **OTLP export tested, at two levels** | ✅ `make test-otel` (9 cases, in-process receiver, in CI's main job) exercises the real OTLP exporter **and** `BatchSpanProcessor` — neither of which the 22 existing telemetry tests touch, since injecting an exporter takes the `SimpleSpanProcessor` branch. `make test-otel-collector` sends to the real collector image and greps its log for the random trace id. Mutation-checked |
+| **Fixed: a down collector left SQLite unclosed on every deploy** | ✅ `shutdownTelemetry` rejected after ~8s of retries; the composition root awaited it before `store.close()` under a signal handler that discards the promise, so the unhandled rejection killed the process with the database open. Now bounded at 2s, never rejects, returns `{ flushed, reason }`; the root uses `try/finally` |
+| **Fixed: `pnpm install` failed outright** | ✅ pnpm 12 wrote an `allowBuilds: { esbuild: "set this to true or false" }` placeholder into `pnpm-workspace.yaml` and then failed every install until it was decided — breaking `make setup`, the container image build and all of CI. Set to `false`: nothing here executes esbuild. **`make check` did not catch this; the container suite did** |
 | **`console/` now type-checked by the gate** | ✅ it cannot be a root `tsc -b` reference — TS forbids `composite` + `noEmit`, and Next needs both — so root `lint` runs the console's own `tsc --noEmit` as its last step. Verified by reintroducing the type error that previously survived a green `check`. Also closed the hole that let it through: the test stubs' `as unknown as OwnerClient` erased errors inside the literal, so the literal is now checked against `Partial<OwnerClient>` first |
 
 ### What the A2A conformance suite found

@@ -2,7 +2,8 @@
 # what each target runs. `make` is the documented interface (CLAUDE.md §3) and is
 # what CI uses; on a dev box without make, `pnpm run <target>` is identical.
 .PHONY: setup dev contracts lint test test-e2e test-container conformance check \
-	test-python test-aws localstack-up localstack-down infra-synth
+	test-python test-aws localstack-up localstack-down infra-synth \
+	test-otel test-otel-collector
 
 setup:
 	pnpm install --frozen-lockfile
@@ -30,6 +31,18 @@ conformance:
 
 test-python:
 	pnpm run test-python
+
+# Spans actually leaving the hub over OTLP/HTTP, against a receiver started in
+# process. No Docker, so this one belongs in CI's main job.
+test-otel:
+	pnpm run test-otel
+
+# The same export against the REAL OpenTelemetry Collector, which is the only
+# way to find out whether a real collector accepts our payload — a stub
+# receiver accepts whatever the exporter sends. Needs Docker; the script
+# refuses to run rather than skipping if the collector is absent.
+test-otel-collector:
+	pnpm run test-otel-collector
 
 # Phase 1 adapters against LocalStack. Deliberately NOT part of `check`: it
 # needs Docker, and `check` must pass on a machine without it.

@@ -77,6 +77,9 @@ make conformance    # MCP + A2A v1.0 conformance. The A2A half is written from t
                     #   spec, not from our adapter, and drives a real hub over signed HTTP
 make test-python    # Python SDK: cross-language vectors + a real hub. Needs python3; not in `make check`
 make test-aws       # S3 adapter vs LocalStack. Fails if LocalStack is absent rather than skipping; not in `make check`
+make test-otel      # spans leaving over OTLP/HTTP to an in-process receiver. No Docker, so CI runs it
+make test-otel-collector  # the same against the REAL collector image, then greps its log for the
+                    #   trace id. A stub receiver accepts anything the exporter emits; this does not
 make infra-synth    # cdk synth only. NEVER cdk deploy/bootstrap/diff — that needs a human (§7)
 make check          # lint + test + contracts — must pass before any handoff
 ```

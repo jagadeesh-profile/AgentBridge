@@ -178,10 +178,14 @@ describe('the exporter', () => {
     expect(exporter.getFinishedSpans()).toHaveLength(0);
   });
 
-  it('shutdown is idempotent', async () => {
+  it('shutdown is idempotent, and reports a flush both times', async () => {
+    // `shutdownTelemetry` returns `{ flushed, reason? }` rather than void, so
+    // the composition root can log dropped spans instead of being unable to
+    // tell. A second call has no provider to flush, which counts as flushed:
+    // reporting failure there would warn on every clean double-shutdown.
     initTelemetry({ serviceName: 'test', exporter: new InMemorySpanExporter() });
-    await shutdownTelemetry();
-    await expect(shutdownTelemetry()).resolves.toBeUndefined();
+    await expect(shutdownTelemetry()).resolves.toEqual({ flushed: true });
+    await expect(shutdownTelemetry()).resolves.toEqual({ flushed: true });
   });
 
   it('reports enabled when an OTLP endpoint is configured', () => {
