@@ -44,8 +44,9 @@ port.
 
 Tracing exports over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and
 the caller's `trace_id` becomes the real OTel trace id so one trace spans both
-agents. Verified against a live collector: spans arrive carrying the caller's
-trace id, with no body-bearing attribute and no span for `/healthz`.
+agents. The attribute allowlist is unit-tested; the collector round trip was
+observed once by hand and is not reproducible from the repo — see "Observed
+once" below.
 
 ## Architecture
 
@@ -299,15 +300,8 @@ conformance suite that has never been seen to fail is decoration:
 | Single-writer stack | restore the ECS rolling-update defaults; add an autoscaling target | 1 failure each |
 | A2A conformance | emit a non-A2A task state; renumber `methodNotFound`; blank the provenance notice | 1, 2 and 1 failures |
 
-Beyond mutation:
+Beyond mutation, and still automated:
 
-- The approval gate, kill switch and task board were driven in a real browser
-  against a real hub. The task board's `include_payload=false` guarantee was
-  checked by asserting the payload text is absent from the page, not just from a
-  unit-test response.
-- The audit viewer was checked by dropping the database's append-only triggers
-  and editing a row directly: the console reported `hash-mismatch at seq 1`,
-  flagged every row from the break, and marked the tab.
 - Moving the chain rule into `contracts` exposed a gap the old walk had: it
   compared hashes but not `seq`, so a **deleted** row could be hidden by serving
   the page around it. The shared verifier checks sequence continuity.
@@ -316,6 +310,38 @@ Beyond mutation:
   would turn every stored idempotency record back into a re-executable request
   *at the moment of deploy*. The upgrade path has its own tests built on a real
   schema-version-3 database.
+
+### Observed once, with no artifact a reviewer can re-run
+
+Separated from the list above deliberately. These were real observations in the
+session that made them, but nothing in the repo reproduces them, so they should
+carry less weight than anything with a test behind it:
+
+- **The approval gate, kill switch and task board were driven in a real
+  browser** against a real hub. No Playwright or component test was written;
+  the console's only automated tests are `console/src/lib/owner-key.test.ts`,
+  which do cover the thing most worth covering — a grep over the console's own
+  sources asserting the owner key never reaches `localStorage`,
+  `sessionStorage`, IndexedDB or a cookie.
+- **The task board's `include_payload=false` guarantee** has an automated
+  assertion at `hub/src/http/app.test.ts:638`, but that is the API response,
+  not the page. The page-level check — that the payload text is absent from the
+  rendered DOM — was manual. An earlier draft of this description claimed the
+  stronger version; it was wrong, and checking it is what produced this section.
+- **The audit viewer was checked by dropping the append-only triggers** and
+  editing a row directly, after which the console reported `hash-mismatch at
+  seq 1`, flagged every row from the break and marked the tab. The chain rule
+  itself is unit-tested in `contracts`; the console's rendering of a break is
+  not.
+- **OTLP export was verified against a live collector**, with spans arriving
+  under the caller's trace id, no body-bearing attribute and no span for
+  `/healthz`. The allowlist is unit-tested; the collector round trip is not.
+- **One unreproduced e2e flake**: 1 of 24 failed once in a combined run, with 13
+  consecutive clean runs since and none during this session's work. Cause
+  unknown, possibly ephemeral-port reuse.
+
+Closing the first four means a component test for the console and a collector
+in CI. Both are worth doing and neither is in this branch.
 
 `make test-container` builds the image, boots it with a generated owner key on a
 fresh volume, and drives it over HTTP only — no `Store` handle exists on that
@@ -395,9 +421,10 @@ stay on the filesystem).
 - The audit viewer renders `subject` verbatim. Subjects are hub-generated and a
   test asserts no payload reaches the response, but anything added to a subject
   becomes owner-visible by default.
-- One **unreproduced e2e flake**: 1 of 24 failed once in a combined run, with 13
-  consecutive clean runs since. Cause unknown, possibly ephemeral-port reuse.
-  Recorded rather than closed.
+- One **unreproduced e2e flake** — see "Observed once" above. Recorded rather
+  than closed.
+- **The console has no component or browser test.** Its surfaces were verified
+  by hand; only the owner-key handling is covered automatically.
 
 ## Phase 0 exit gate
 
