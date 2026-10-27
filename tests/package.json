@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
+    "@agentbridge/a2a": "workspace:*",
     "@agentbridge/contracts": "workspace:*",
     "@agentbridge/delivery": "workspace:*",
     "@agentbridge/hub": "workspace:*",

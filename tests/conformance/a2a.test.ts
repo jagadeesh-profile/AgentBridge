@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { UNTRUSTED_NOTICE } from '@agentbridge/a2a';
 import { requestDescriptor, signDescriptor } from '@agentbridge/contracts';
 import { A2A_PUBLIC_URL, startHarness, type Harness } from '../e2e/harness.js';
 
@@ -252,6 +253,17 @@ describe('A2A 1. Agent Card discovery', () => {
       capabilities?: Record<string, unknown>;
     };
     expect(typeof card.capabilities?.streaming).toBe('boolean');
+  });
+
+  it('states untrusted-data provenance in a field clients actually read', async () => {
+    // §1.1 is the invariant this hub exists for, and the card is the one
+    // document every A2A client fetches. This lived only in a source comment
+    // that claimed it was "stated on the card" while nothing emitted it —
+    // asserted here so the claim and the bytes cannot diverge again.
+    const card = (await (await fetch(`${h.baseUrl}/.well-known/agent-card.json`)).json()) as {
+      description?: string;
+    };
+    expect(card.description).toContain(UNTRUSTED_NOTICE);
   });
 
   it('leaks no agent names, keys or workspace contents', async () => {
