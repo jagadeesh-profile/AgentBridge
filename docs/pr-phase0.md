@@ -15,10 +15,13 @@ the task-by-task plan in
 
 ```bash
 make setup
-agentbridge keygen --out owner.key
+agentbridge keygen --out owner.key             # needs no workspace and no hub
 export AGENTBRIDGE_OWNER_PUBLIC_KEY=<the printed public key>
-make dev                                       # hub in Docker on :8080
-pnpm --filter @agentbridge/console run dev     # console on :3000
+# 8080 and 3000 are popular; both are overridable rather than hardcoded.
+export AGENTBRIDGE_HOST_PORT=8090              # optional; host side only
+make dev                                       # hub in Docker on :8090
+AGENTBRIDGE_URL=http://localhost:8090 \
+  pnpm --filter @agentbridge/console run dev   # console proxies /v1/* to the hub
 make check && make test-e2e && make conformance
 make test-container                            # builds and drives the real image
 make test-aws                                  # S3 adapter vs LocalStack

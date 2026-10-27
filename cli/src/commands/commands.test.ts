@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir, platform } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -368,5 +369,52 @@ describe('read-only commands', () => {
     lines.length = 0;
     await auditVerify(env, { ownerKeyPath, list: true });
     expect(lines.join('\n')).toContain('agent.revoke');
+  });
+});
+
+/**
+ * The real bin, as a subprocess.
+ *
+ * Everything above imports the command functions directly, which is why a
+ * dispatch bug in `cli/src/index.ts` survived: `env()` ran before the switch,
+ * so `keygen` — the first command of the documented quickstart, which talks to
+ * nothing — failed with "AGENTBRIDGE_WORKSPACE is required" before the user
+ * had a workspace to name. Found by following the quickstart on a fresh
+ * machine, not by any test.
+ */
+describe('the agentbridge bin', () => {
+  const BIN = join(import.meta.dirname, '..', '..', 'dist', 'index.js');
+
+  function run(args: string[], env: Record<string, string | undefined>) {
+    return spawnSync(process.execPath, [BIN, ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, ...env },
+    });
+  }
+
+  it('generates a key with NO workspace configured', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ab-cli-bin-'));
+    try {
+      const res = run(['keygen', '--out', join(dir, 'owner.key')], {
+        AGENTBRIDGE_WORKSPACE: undefined,
+        AGENTBRIDGE_URL: undefined,
+      });
+      expect(res.stderr).not.toContain('AGENTBRIDGE_WORKSPACE');
+      expect(res.status).toBe(0);
+      expect(res.stdout).toContain('public key:');
+      // The private key's location, never its bytes.
+      expect(res.stdout).not.toContain(readFileSync(join(dir, 'owner.key'), 'utf8').trim());
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('still requires a workspace for a command that talks to the hub', () => {
+    // The check was not wrong, only misplaced: `pending` genuinely needs it.
+    const res = run(['pending', '--owner-key', 'owner.key'], {
+      AGENTBRIDGE_WORKSPACE: undefined,
+    });
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('AGENTBRIDGE_WORKSPACE');
   });
 });

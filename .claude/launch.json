@@ -6,7 +6,10 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@agentbridge/console", "run", "dev"],
       "port": 3000,
-      "autoPort": true
+      "autoPort": true,
+      "env": {
+        "AGENTBRIDGE_URL": "http://localhost:8090"
+      }
     }
   ]
 }

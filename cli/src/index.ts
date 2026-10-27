@@ -87,18 +87,27 @@ async function main(argv: string[]): Promise<void> {
     },
   });
 
+  // `keygen` is handled BEFORE env(), because it generates a keypair on disk
+  // and talks to nothing: it needs no workspace and no hub URL. It used to sit
+  // after env() and so failed with "AGENTBRIDGE_WORKSPACE is required" — on
+  // the very first command of the documented quickstart, before the user has a
+  // workspace to name, and citing a variable the command never reads.
+  if (command === 'keygen') {
+    await keygen(
+      { baseUrl: '', workspace: '', write: (line) => process.stdout.write(`${line}\n`) },
+      {
+        out: need(values.out, '--out'),
+        ...(values.force === true ? { force: true } : {}),
+      },
+    );
+    return;
+  }
+
   const e = env();
   const agentRef = (): string => need(values.agent, '--agent');
   const agentKey = (): string => need(values['agent-key'], '--agent-key');
 
   switch (command) {
-    case 'keygen':
-      await keygen(e, {
-        out: need(values.out, '--out'),
-        ...(values.force === true ? { force: true } : {}),
-      });
-      return;
-
     case 'register':
       await register(e, {
         name: need(values.name, '--name'),

@@ -2,7 +2,11 @@ services:
   hub:
     build: .
     ports:
-      - '8080:8080'
+      # Host port is configurable; the container port is not. 8080 is a popular
+      # default and is quite often already taken on a developer machine — this
+      # was hardcoded, so `make dev` failed with a Docker networking error that
+      # says nothing about which process holds the port or how to move ours.
+      - '${AGENTBRIDGE_HOST_PORT:-8080}:8080'
     environment:
       # No default: a hub that accepted approvals against a placeholder owner
       # key would be worse than one that refuses to start.
