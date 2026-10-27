@@ -1,0 +1,19 @@
+{
+  "name": "@agentbridge/infra",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --dir src",
+    "lint": "eslint src",
+    "synth": "cdk synth -c ownerPublicKey=$AGENTBRIDGE_OWNER_PUBLIC_KEY"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.177.0",
+    "constructs": "10.4.2"
+  },
+  "devDependencies": {
+    "aws-cdk": "2.177.0"
+  }
+}

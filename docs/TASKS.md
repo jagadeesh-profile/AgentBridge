@@ -20,7 +20,10 @@ see "Verification debt".
 | Command | Result |
 |---|---|
 | `pnpm --filter @agentbridge/console run build` | **compiles** |
-| `make check` — lint, `tsc --strict`, unit, contract-drift | **602 tests** |
+| `make check` — lint, `tsc --strict`, unit, contract-drift | **639 tests** + 1 skip (the S3 half, when LocalStack is down — by design) |
+| `make test-aws` — S3 adapter vs LocalStack | **24 tests**; fails rather than skips if LocalStack is absent |
+| `make infra-synth` — `cdk synth` only, never deploy (§7) | **740-line template**, 22 assertions on it |
+| `make test-python` — Python SDK | **20 tests** |
 | `make test-e2e` — real hub, SQLite on disk, delivery worker | **24 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests**, re-run against a freshly built image after the console work |
 | `make conformance` — MCP tool surface | **8 tests** |
@@ -108,7 +111,7 @@ see "Verification debt".
 | **A2A push notifications** | ✅ URL restricted to the agent's owner-authorised origin; reuses the retry/DLQ/redaction path |
 | A2A streaming | ⬜ declared `false` on the card; `message/stream` returns a reason |
 | A2A conformance suite | ⬜ coverage is in `hub/src/http/a2a.test.ts`; a real suite should run against the published spec |
-| `infra/` AWS CDK | ⬜ not started — writing infrastructure that `CLAUDE.md` §7 forbids deploying would ship untested code |
+| **`infra/` AWS CDK** | ✅ single-writer Fargate + EFS + S3 + ALB, no NAT gateway (ADR 0010). 22 template assertions; `cdk synth` produces a 740-line template. **Not deployed** — §7. The four single-writer settings are each asserted, and two were mutation-checked |
 | **Store conformance suite** | ✅ one spec, both implementations, 48 assertions; mutation-checked |
 | **Phase 1 port adapter — S3 `BlobStore`** | ✅ one file; passes `blob-conformance.ts` against LocalStack, 12 cases each side; `pnpm run test-aws` refuses to pass vacuously |
 | Phase 1 port adapter — SQS FIFO `Queue` | 🚧 **blocked, not small.** `claimNext`/`recoverInflight` are sync; and §1.5's "hold the thread until backoff expires" is not what a FIFO visibility timeout does (ADR 0009) |
@@ -119,25 +122,27 @@ see "Verification debt".
 | OAuth 2.1 / mTLS | ⬜ ADR 0002 defers these here |
 | **`withIdempotency` durable reservation** | ✅ reserves before the body runs; proven across two processes on one database; migration 004 |
 | **`BlobStore` conformance suite** | ✅ one spec, both implementations, 24 assertions; mutation-checked twice |
+| **S3 wired into the composition root** | ✅ `AGENTBRIDGE_ARTIFACT_BUCKET` selects S3, else the filesystem. Credentials come from the task role, so §1.6 still holds |
+| **ADR 0010 — single-writer Phase 1** | ✅ the owner's decision, the deploy-time two-writer hazard, and the ~$29/month cost shape against §7's $50 threshold |
 | `make test-python` / `test-aws` targets missing from the Makefile | ✅ `test-python` was a pnpm script with no `make` target despite §3 documenting one |
 
-### The Phase 1 decision now blocking DynamoDB and SQS
+### The Phase 1 storage decision — resolved
 
-ADR 0009 states it in full. In short: the synchronous `Store` is a commitment to
-**embedded** storage, because Node cannot serve a synchronous method from
-network I/O — this is not specific to DynamoDB, it is equally true of Aurora and
-RDS. Either
+ADR 0009 put two options to the owner, because the synchronous `Store` is a
+commitment to **embedded** storage: Node cannot serve a synchronous method from
+network I/O, which rules out DynamoDB *and* Aurora and RDS equally.
 
-- **A** — make `Store` async (45 methods, every domain module and route), which
-  gives up the no-interleaving property ADR 0003 bought and hands §1.9's
-  atomicity to adapter-level optimistic concurrency; or
-- **B** — keep it synchronous, run Phase 1 single-writer (SQLite on EFS, or
-  litestream), and drop DynamoDB/SQS from scope.
+**The owner chose B on 2026-10-27: keep `Store` synchronous and run Phase 1
+single-writer.** Recorded as ADR 0010. Consequences:
 
-The lead's recommendation is **B until a second hub instance is actually
-needed**: nothing in the PRD requires horizontal hub scale, the current
-invariants are enforced by a design that depends on synchronicity, and B keeps A
-fully available later. This is the owner's call, not the lead's.
+- DynamoDB, SQS FIFO and KMS are **out of Phase 1 scope**, not pending.
+- §1.5's ordering mechanism is **unchanged** from Phase 0 — the durable outbox
+  and per-thread scheduler stay, already tested.
+- The async-`Store` refactor remains available whenever a second hub instance is
+  genuinely needed, with `store-conformance.ts` as its acceptance test.
+- One task, and `minHealthyPercent: 0` so a deploy stops the old task before
+  starting the new one. The ECS default would run two writers on one SQLite
+  file; a few seconds of deploy downtime is the deliberate price.
 
 ## What TDD caught that the plan got wrong
 

@@ -3,7 +3,7 @@
 AgentBridge is a vendor-neutral, event-driven hub that lets any AI agent (Claude, ChatGPT, Gemini, LangGraph, CrewAI, Bedrock agents) find another agent, hand it work and get results back with no human relaying messages. Agents connect through MCP, A2A, webhook + REST, or the TypeScript SDK. They share threads, tasks and artifacts, and every side effect waits for the owner's approval.
 
 - PRD (source of truth for scope): https://claude.ai/artifact/WF43bQ4w36yFJBnWky63iJ
-- Current phase: **Phase 1 started.** A2A has landed (ADR 0007). AWS infra, the Python SDK and OAuth 2.1 remain.
+- Current phase: **Phase 1.** A2A (ADR 0007), the Python SDK, the S3 artifact store and `infra/` have landed. Phase 1 runs **single-writer** by the owner's decision (ADR 0010), which withdraws DynamoDB, SQS FIFO and KMS from scope. OAuth 2.1 remains, as does deploying the stack — which needs a human (§7).
 - Phase 0 is feature-complete — hub core, MCP, webhook + pull inbox, signed identities, the owner console and the Claude ↔ Muse pilot — but its **exit gate is not met**: that needs the pilot running relay-free for 7 straight days, and nothing on this branch has had a second reviewer.
 
 This file is loaded into every session. Keep it accurate; update it in the same PR as any change it describes.
@@ -18,7 +18,7 @@ Every agent, the lead included, enforces these. A change that weakens one needs 
 2. **Every message is signed by its agent.** Ed25519 per agent and verified on receipt. Agents never post as a human account.
 3. **Side effects stop at the approval gate.** Any task or call with `side_effect: true` waits in `needs-approval` until the owner signs an approval bound to the exact payload hash. Owner-facing routes authenticate the owner's own key (ADR 0006); no agent identity can reach them, and the approving client recomputes that hash from the payload it displayed rather than trusting the hub's.
 4. **At-least-once delivery, exactly-once effect.** Every write accepts an `idempotency_key`. The hub **reserves the key in the database before running the body**, not after, so two processes cannot both execute it — discarding a duplicate's response is not the same as not performing its effect. A reservation left by a crashed process goes stale and is reclaimable.
-5. **Ordering is guaranteed per thread, not across threads.** Phase 0: a durable SQLite outbox plus a scheduler that claims the oldest live row of a thread only when nothing is inflight on it. Phase 1: SQS FIFO with `MessageGroupId = thread_id`. Same semantics, different mechanism.
+5. **Ordering is guaranteed per thread, not across threads.** A durable SQLite outbox plus a scheduler that claims the oldest live row of a thread only when nothing is inflight on it. This is **unchanged in Phase 1** (ADR 0010): the SQS FIFO plan is withdrawn, because `Queue` is synchronous where SQS is not, and a FIFO group's visibility timeout is not the same rule as "hold this thread until the in-flight row's backoff expires" (ADR 0009).
 6. **The hub stores no secrets.** No model API keys, no tool credentials. Outbound content is scanned and redacted for tokens and card numbers.
 7. **No LLM calls inside the hub in v1.** The hub routes, stores and governs. It does not think.
 8. **Least privilege by default.** New agents get `read` + `message` only. Other scopes are granted explicitly, and the owner's signature over the enrolment binds them (ADR 0005), so an agent cannot widen its own scopes.
@@ -43,7 +43,7 @@ Each path has exactly one owning subagent. Only the owner edits it; anyone may r
 | `sdk/python/` | Python SDK (FR-18). Canonicalization and signing verified byte-identical to TypeScript via generated vectors; owner operations and async are not ported | `sdk` |
 | `console/` | Owner console. Next.js; approvals, task board, kill switch and audit viewer shipped. The owner key is loaded per session and held in the browser only (ADR 0006) | `console` |
 | `Dockerfile`, `docker-compose.yml`, `.github/` | Phase 0: hub container, local stack, CI | `infra` |
-| `infra/` | AWS CDK (ECS Fargate, SQS FIFO, DynamoDB, S3, EventBridge, Lambda, KMS) — **Phase 1** | `infra` |
+| `infra/` | AWS CDK — **single-writer** Fargate service, SQLite on EFS, artifacts in S3, ALB, no NAT gateway (ADR 0010). Verified by `cdk synth` plus template assertions; **never deployed from here** (§7). No DynamoDB, SQS, KMS or Secrets Manager — see ADR 0009 for why each was withdrawn | `infra` |
 | `tests/e2e/`, `tests/conformance/`, `tests/load/` | End-to-end, protocol conformance and load tests | `test-engineer` |
 | `examples/claude-muse/` | Phase 0 pilot wiring | lead |
 
@@ -73,6 +73,8 @@ make test-e2e       # e2e against a real in-process hub (SQLite on disk, worker)
 make test-container # the real Docker image, driven over HTTP only
 make conformance    # MCP conformance suite (A2A coverage is in hub/src/http/a2a.test.ts)
 make test-python    # Python SDK: cross-language vectors + a real hub. Needs python3; not in `make check`
+make test-aws       # S3 adapter vs LocalStack. Fails if LocalStack is absent rather than skipping; not in `make check`
+make infra-synth    # cdk synth only. NEVER cdk deploy/bootstrap/diff — that needs a human (§7)
 make check          # lint + test + contracts — must pass before any handoff
 ```
 
@@ -87,7 +89,8 @@ registration (superseded), 0005 owner-signed registration, 0006
 owner-authenticated routes and the console's in-browser key, 0007 the A2A
 endpoint inside the hub rather than behind a proxy, 0008 the Store conformance
 suite and what it says about the Phase 1 migration, 0009 the synchronous port
-boundary and which Phase 1 adapters are actually possible.
+boundary and which Phase 1 adapters are actually possible, 0010 Phase 1 runs
+single-writer (SQLite on EFS, artifacts in S3).
 
 ---
 

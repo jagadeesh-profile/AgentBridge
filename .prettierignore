@@ -4,6 +4,13 @@ pnpm-lock.yaml
 contracts/generated/
 .superpowers/
 
+# Generated from the TypeScript implementation by contracts/scripts/gen-vectors.mjs
+# (the Python SDK's cross-language proof). It was previously committed in
+# prettier's formatting rather than the generator's, so every regeneration made
+# `prettier --check` fail on a file nobody had edited. The generator is the
+# source of truth; its output is committed verbatim.
+sdk/python/tests/vectors.json
+
 # Prose is authored, not generated. Prettier reflows markdown tables and
 # paragraphs, which churns the PRD, the spec, the plan and the agent briefs
 # without improving them. Code and config are formatted; documents are not.

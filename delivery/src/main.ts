@@ -15,6 +15,7 @@ import {
   buildApp,
   initTelemetry,
   openBlobStore,
+  openS3BlobStore,
   openStore,
   shutdownTelemetry,
   telemetryOptionsFromEnv,
@@ -56,7 +57,23 @@ async function main(): Promise<void> {
   const store = openStore(dbPath);
   const clock: Clock = { now: () => new Date() };
   const ids: IdGen = { ulid: (prefix) => `${prefix}_${ulid()}` };
-  const blob = openBlobStore(artifactDir);
+  // Artifacts go to S3 when a bucket is configured, and to the local
+  // filesystem otherwise. Both satisfy the same `BlobStore` port and the same
+  // conformance suite (ADR 0009), so this is the only line that knows which.
+  // Phase 1's single-writer topology (ADR 0010) keeps SQLite on a volume but
+  // has no reason to keep artifact bytes there.
+  const artifactBucket = process.env.AGENTBRIDGE_ARTIFACT_BUCKET;
+  const blob =
+    artifactBucket === undefined || artifactBucket === ''
+      ? openBlobStore(artifactDir)
+      : openS3BlobStore({
+          bucket: artifactBucket,
+          ...(process.env.AWS_REGION === undefined ? {} : { region: process.env.AWS_REGION }),
+          // Set only for LocalStack; unset against real S3.
+          ...(process.env.AWS_ENDPOINT_URL === undefined
+            ? {}
+            : { endpoint: process.env.AWS_ENDPOINT_URL, forcePathStyle: true }),
+        });
 
   const app = await buildApp({
     store,

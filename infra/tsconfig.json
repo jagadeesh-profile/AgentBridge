@@ -1,0 +1,19 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // Relaxed for this package only, and only this flag — `strict` stays on.
+    //
+    // aws-cdk-lib's construct classes declare `prop: T | undefined` where its
+    // own interfaces declare `prop?: T`, which is exactly what
+    // exactOptionalPropertyTypes rejects. Passing a `Vpc` where an `IVpc` is
+    // wanted therefore fails to compile, which is every line of a CDK stack.
+    // It is a property of the library's typings, not of our code, and the
+    // alternative is casting at every construct boundary — which would hide
+    // real type errors to satisfy a flag that cannot apply here.
+    "exactOptionalPropertyTypes": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

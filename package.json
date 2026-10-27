@@ -18,7 +18,8 @@
     "check": "pnpm run lint && pnpm run test && pnpm run contracts",
     "test-container": "vitest run --config vitest.container.config.ts tests/container",
     "test-python": "node contracts/scripts/gen-vectors.mjs && cd sdk/python && python -m unittest discover -s tests",
-    "test-aws": "node scripts/test-aws.mjs"
+    "test-aws": "node scripts/test-aws.mjs",
+    "infra-synth": "pnpm --filter @agentbridge/infra exec tsc -b && pnpm --filter @agentbridge/infra exec cdk synth -c ownerPublicKey=$AGENTBRIDGE_OWNER_PUBLIC_KEY"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

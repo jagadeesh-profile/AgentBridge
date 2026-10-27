@@ -2,7 +2,7 @@
 # what each target runs. `make` is the documented interface (CLAUDE.md §3) and is
 # what CI uses; on a dev box without make, `pnpm run <target>` is identical.
 .PHONY: setup dev contracts lint test test-e2e test-container conformance check \
-	test-python test-aws localstack-up localstack-down
+	test-python test-aws localstack-up localstack-down infra-synth
 
 setup:
 	pnpm install --frozen-lockfile
@@ -50,6 +50,12 @@ localstack-up:
 
 localstack-down:
 	-docker stop ab-localstack
+
+# `synth` ONLY. `cdk deploy`, `cdk bootstrap` and `cdk diff` against a live
+# stack all touch a real AWS account, which CLAUDE.md §7 forbids without human
+# approval — there is deliberately no target for them.
+infra-synth:
+	pnpm run infra-synth
 
 check:
 	pnpm run check

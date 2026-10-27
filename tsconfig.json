@@ -24,6 +24,9 @@
     },
     {
       "path": "./examples/claude-muse"
+    },
+    {
+      "path": "./infra"
     }
   ]
 }

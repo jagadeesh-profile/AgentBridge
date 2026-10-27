@@ -1,0 +1,9 @@
+{
+  "app": "node dist/app.js",
+  "watch": { "exclude": ["**/node_modules/**", "dist/**"] },
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/aws-ecs:disableEcsImdsBlocking": true
+  }
+}

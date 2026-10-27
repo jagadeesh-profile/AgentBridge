@@ -48,3 +48,7 @@ console/next-env.d.ts
 # Python SDK
 sdk/python/**/__pycache__/
 sdk/python/*.egg-info/
+
+# CDK synthesis output — a build artifact, never committed.
+cdk.out/
+infra/cdk.out/

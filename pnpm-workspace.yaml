@@ -8,6 +8,7 @@ packages:
   - console
   - examples/*
   - tests
+  - infra
 minimumReleaseAgeExclude:
   - '@opentelemetry/api@1.10.0'
   - '@opentelemetry/core@3.0.0'
