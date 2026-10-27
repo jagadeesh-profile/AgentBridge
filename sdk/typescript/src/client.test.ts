@@ -16,6 +16,8 @@ let deps: Fakes;
 let app: FastifyInstance;
 let baseUrl: string;
 let claude: Client;
+/** The options `claude` was built from, so a test can vary one of them. */
+let claudeOpts: ConstructorParameters<typeof Client>[0];
 let owner: OwnerClient;
 let ownerPriv: Uint8Array;
 let museAgent: Agent;
@@ -59,7 +61,8 @@ beforeEach(async () => {
   baseUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
 
   const common = { baseUrl, workspace: 'ws' };
-  claude = new Client({ ...common, agent: 'agent:claude', privateKey: clPriv });
+  claudeOpts = { ...common, agent: 'agent:claude', privateKey: clPriv };
+  claude = new Client(claudeOpts);
   owner = new OwnerClient({ ...common, privateKey: ownerPriv });
   museAgent = new Agent({
     ...common,
@@ -313,5 +316,137 @@ describe('Agent', () => {
     await ordered.poll();
     ordered.stop();
     expect(seen).toEqual([1, 2, 3]);
+  });
+});
+
+describe('wire-name guard', () => {
+  /**
+   * The failure this prevents was found by deploying locally and using the
+   * SDK from a plain `.mjs` script: `createTask({ side_effect: true })` is an
+   * excess property that TypeScript rejects and JavaScript ignores, so the
+   * `?? false` default applied and the task was created WITHOUT the approval
+   * gate. The assignee would then have executed the side effect with no owner
+   * decision — the one outcome CLAUDE.md §1.3 exists to prevent.
+   *
+   * Every document in the project spells this field `side_effect`; only this
+   * client spells it `sideEffect`. That makes the mistake structural, so the
+   * guard refuses rather than translates.
+   */
+  it('REFUSES side_effect, which would have created an ungated task', async () => {
+    await expect(
+      claude.createTask({
+        thread: 'thr_1',
+        assignee: 'agent:muse',
+        title: 'pay the invoice',
+        payload: { amount: 100 },
+        // @ts-expect-error -- the wire name; TS catches it, JS would not.
+        side_effect: true,
+      }),
+    ).rejects.toThrow(/"side_effect" is the wire field name/);
+  });
+
+  it('says what the correct name is, and what the silent cost was', async () => {
+    const err = await claude
+      .createTask({
+        thread: 'thr_1',
+        assignee: 'agent:muse',
+        title: 'x',
+        payload: {},
+        // @ts-expect-error -- deliberate
+        side_effect: true,
+      })
+      .catch((e: unknown) => e as Error);
+    expect(err.message).toContain('sideEffect');
+    expect(err.message).toContain('WITHOUT the approval gate');
+  });
+
+  it('refuses the other wire names too, which fail the same way', async () => {
+    // due_at and idempotency_key are the same bug, just cheaper: silently
+    // ignored, so the caller believes it set a deadline or a retry key.
+    for (const bad of ['due_at', 'idempotency_key'] as const) {
+      await expect(
+        claude.createTask({
+          thread: 'thr_1',
+          assignee: 'agent:muse',
+          title: 'x',
+          payload: {},
+          // @ts-expect-error -- deliberate
+          [bad]: 'whatever',
+        }),
+      ).rejects.toThrow(new RegExp(`"${bad}" is the wire field name`));
+    }
+  });
+
+  it('guards requestApproval, whose name a stray side_effect would contradict', async () => {
+    await expect(
+      claude.requestApproval({
+        thread: 'thr_1',
+        assignee: 'agent:muse',
+        title: 'x',
+        payload: {},
+        // @ts-expect-error -- deliberate
+        side_effect: false,
+      }),
+    ).rejects.toThrow(/wire field name/);
+  });
+
+  it('still accepts the camelCase form, and gates the task', async () => {
+    // The complement: the guard must not have broken the correct spelling.
+    const task = await claude.createTask({
+      thread: 'thr_1',
+      assignee: 'agent:muse',
+      title: 'gated properly',
+      payload: { amount: 100 },
+      sideEffect: true,
+    });
+    expect(task.state).toBe('needs-approval');
+  });
+});
+
+describe('trace id propagation (spec §8)', () => {
+  const TRACE = 'ab'.repeat(16);
+
+  function spyFetch(seen: Record<string, string>[]) {
+    return (async (url: string | URL | Request, init?: RequestInit) => {
+      seen.push({ ...((init?.headers ?? {}) as Record<string, string>) });
+      return globalThis.fetch(url as string, init);
+    }) as typeof fetch;
+  }
+
+  it('sends the caller trace id, so the hub joins the same trace', async () => {
+    // Previously sent no such header at all, which is the only thing the hub
+    // reads a caller's trace from — so §8 held for raw HTTP and failed for
+    // every SDK user.
+    const seen: Record<string, string>[] = [];
+    const c = new Client({ ...claudeOpts, fetch: spyFetch(seen), traceId: () => TRACE });
+    await c.listInbox();
+    expect(seen[0]?.['x-agentbridge-trace-id']).toBe(TRACE);
+  });
+
+  it('sends no header when there is no active trace', async () => {
+    const seen: Record<string, string>[] = [];
+    const c = new Client({ ...claudeOpts, fetch: spyFetch(seen), traceId: () => undefined });
+    await c.listInbox();
+    expect(seen[0]).not.toHaveProperty('x-agentbridge-trace-id');
+  });
+
+  it('THROWS on a malformed trace id rather than letting the hub discard it', async () => {
+    // The hub replaces a bad id and warns server-side, so the agent would
+    // believe its traces were joined when they were not.
+    const c = new Client({ ...claudeOpts, traceId: () => 'not-a-trace-id' });
+    await expect(c.listInbox()).rejects.toThrow(/not a 32-character lowercase hex/);
+  });
+
+  it('re-reads the provider per request, so a per-task trace works', async () => {
+    // The option is a function precisely because an agent handling many tasks
+    // has one trace per task, not one per client.
+    const seen: Record<string, string>[] = [];
+    let current = TRACE;
+    const c = new Client({ ...claudeOpts, fetch: spyFetch(seen), traceId: () => current });
+    await c.listInbox();
+    current = 'cd'.repeat(16);
+    await c.listInbox();
+    expect(seen[0]?.['x-agentbridge-trace-id']).toBe(TRACE);
+    expect(seen[1]?.['x-agentbridge-trace-id']).toBe('cd'.repeat(16));
   });
 });

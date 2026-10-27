@@ -20,9 +20,9 @@ see "Verification debt".
 | Command | Result |
 |---|---|
 | `pnpm --filter @agentbridge/console run build` | **compiles** |
-| `make check` — lint, `tsc --strict`, unit, contract-drift | **666 tests** + 1 skip (the S3 half, when LocalStack is down — by design) |
+| `make check` — lint, `tsc --strict`, unit, contract-drift | **677 tests** + 1 skip (the S3 half, when LocalStack is down — by design) |
 | `make conformance` — MCP + A2A v1.0 | **48 tests** |
-| `make test-otel` — OTLP export to an in-process receiver (in CI) | **9 tests** + 2 skips (the real-collector half) |
+| `make test-otel` — OTLP export to an in-process receiver (in CI) | **10 tests** + 2 skips (the real-collector half) |
 | `make test-otel-collector` — the real OpenTelemetry Collector | span accepted, and its random trace id found in the collector's own log |
 | `make test-aws` — S3 adapter vs LocalStack | **24 tests**; fails rather than skips if LocalStack is absent |
 | `make infra-synth` — `cdk synth` only, never deploy (§7) | **740-line template**, 23 assertions on it |
@@ -127,6 +127,8 @@ see "Verification debt".
 | **S3 wired into the composition root** | ✅ `AGENTBRIDGE_ARTIFACT_BUCKET` selects S3, else the filesystem. Credentials come from the task role, so §1.6 still holds |
 | **ADR 0010 — single-writer Phase 1** | ✅ the owner's decision, the deploy-time two-writer hazard, and the ~$29/month cost shape against §7's $50 threshold |
 | **Console component tests** | ✅ 26 cases under jsdom over board, audit and agents — the surfaces previously verified only by clicking. Mutation-checked: rendering a payload, flagging one audit row instead of all after the break, and dropping the typed-name guard each fail. No new dependency for JSX (the bundler's own transform, not `@vitejs/plugin-react`, whose esbuild install script the supply-chain policy blocks) |
+| **Fixed: the SDK silently dropped `side_effect`** | ✅ `createTask({ side_effect: true })` is an excess property TypeScript rejects and **JavaScript ignores**, so `?? false` applied and the task was created **ungated** — the one outcome §1.3 exists to prevent. Found by using the SDK from a plain `.mjs` script against the local deploy. The guard now throws on every wire-cased key (`due_at`, `idempotency_key`, … fail the same way), naming the correct spelling and the silent cost. Refuses rather than translates: accepting both spellings leaves the ambiguity that caused it |
+| **SDK trace-id propagation (FR/§8)** | ✅ `ClientOptions.traceId` — a provider, not a value, since an agent has one trace per task. The SDK sent no `x-agentbridge-trace-id` at all, the only header the hub reads a caller's trace from, so §8's "one trace spans both agents" held for raw HTTP and failed for every SDK user. Throws on a malformed id rather than letting the hub discard it silently. An end-to-end case in `tests/telemetry` asserts an SDK-supplied id reaches an exported span |
 | **Local deploy, run for real** | ✅ `docker compose` hub + CLI enrolment + the full Claude ↔ Muse pilot (5 steps, gate held, 13 audit rows verified) + the console in a browser with its `/v1/*` proxy confirmed against the container. Found two quickstart-blocking bugs, both fixed with a regression test that runs the real bin rather than importing its functions |
 | **OTLP export tested, at two levels** | ✅ `make test-otel` (9 cases, in-process receiver, in CI's main job) exercises the real OTLP exporter **and** `BatchSpanProcessor` — neither of which the 22 existing telemetry tests touch, since injecting an exporter takes the `SimpleSpanProcessor` branch. `make test-otel-collector` sends to the real collector image and greps its log for the random trace id. Mutation-checked |
 | **Fixed: a down collector left SQLite unclosed on every deploy** | ✅ `shutdownTelemetry` rejected after ~8s of retries; the composition root awaited it before `store.close()` under a signal handler that discards the promise, so the unhandled rejection killed the process with the database open. Now bounded at 2s, never rejects, returns `{ flushed, reason }`; the root uses `try/finally` |

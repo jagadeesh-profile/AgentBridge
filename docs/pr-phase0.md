@@ -2,7 +2,7 @@
 
 Implements FR-1 … FR-8 plus the MCP server, the A2A v1.0 endpoint, the
 TypeScript and Python SDKs, the `agentbridge` CLI, the owner console, the S3
-artifact store, the AWS CDK stack and the Claude ↔ Muse pilot. **44 commits**,
+artifact store, the AWS CDK stack and the Claude ↔ Muse pilot. **50 commits**,
 each TDD'd with its own green gate.
 
 **Adopts TypeScript**, replacing the Python 3.12 / FastAPI stack the repo
@@ -30,13 +30,13 @@ make infra-synth                               # cdk synth only — never deploy
 
 | Gate | Result |
 |---|---|
-| `make check` — lint, `tsc --strict`, unit tests, contract-drift | **666 tests** (40 files), + 1 deliberate skip |
+| `make check` — lint, `tsc --strict`, unit tests, contract-drift | **677 tests** (40 files), + 1 deliberate skip |
 | `make test-e2e` — real hub: SQLite on disk, delivery worker, real ports | **24 tests** |
 | `make conformance` — MCP + **A2A v1.0** | **48 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests** |
 | `make test-aws` — S3 `BlobStore` vs LocalStack | **24 tests** |
 | `make test-python` — Python SDK, cross-language vectors + a real hub | **20 tests** |
-| `make test-otel` — OTLP export to an in-process receiver (in CI) | **9 tests** |
+| `make test-otel` — OTLP export to an in-process receiver (in CI) | **10 tests** |
 | `make test-otel-collector` — the real OpenTelemetry Collector | span accepted **and** its trace id found in the collector's log |
 | `make infra-synth` — `cdk synth` | 740-line template, **23 assertions** on it |
 | `pnpm --filter @agentbridge/console run build` | compiles |
@@ -72,7 +72,7 @@ console cannot diverge.
 | `contracts/` | Envelope, transition table as data, error catalog, JCS canonicalization, Ed25519 signing, the audit chain rule |
 | `hub/` | Ports, SQLite + filesystem + **S3** adapters, domain (registry, threads, tasks, artifacts, approvals, audit, inbox), Fastify API, the A2A routes |
 | `delivery/` | Per-thread outbox scheduler, HMAC webhook push, jittered backoff, DLQ, composition root |
-| `sdk/typescript/` | `Client`, `OwnerClient`, `Agent.onTask`, `Untrusted<T>`, `verifyWebhook`, local key management |
+| `sdk/typescript/` | `Client`, `OwnerClient`, `Agent.onTask`, `Untrusted<T>`, `verifyWebhook`, local key management, trace-id propagation, and a guard that refuses wire-cased field names |
 | `sdk/python/` | Python SDK (FR-18): canonicalization, signing, client, pull-inbox handler — byte-identical to TypeScript by generated vectors |
 | `adapters/mcp/` | stdio MCP server — seven tools, a thin REST client of the hub |
 | `adapters/a2a/` | A2A v1.0 protocol translation: Agent Card, JSON-RPC envelope, state mapping. Pure; the routes live in the hub ([ADR 0007](docs/adr/0007-a2a-endpoint-inside-the-hub.md)) |
@@ -273,6 +273,19 @@ failing-first test, plus the five A2A defects above. The full table is in
 - `fetch` was stored unbound on both SDK clients. Node tolerates it; a browser
   rejects it outright. Only running the console in a real page caught it, and
   the regression test asserts the receiver so it now fails in Node too.
+- **The SDK silently dropped `side_effect`, creating an UNGATED task.**
+  `createTask({ side_effect: true })` is an excess property: TypeScript
+  rejects it, JavaScript ignores it, and the SDK's `?? false` then applied —
+  so the task was created without the approval gate and the assignee would
+  have executed the side effect with no owner decision. That is the single
+  outcome §1.3 exists to prevent, on the field the contract says may not be
+  defaulted. The confusion is structural rather than careless: the wire
+  contract, the generated OpenAPI, the CLI and every document spell it
+  `side_effect`, and only the client spells it `sideEffect`. The guard now
+  throws on every such pair — `due_at` and `idempotency_key` fail the same
+  way, just more cheaply — naming the right spelling and what the silent cost
+  would have been. Found by using the SDK from a plain `.mjs` script against
+  the local deploy; no test, type or review had caught it.
 - **A down tracing backend left SQLite unclosed on every deploy.**
   `provider.shutdown()` flushes, so an unreachable collector made it reject
   after ~8s of exporter retries. The composition root awaited that between
@@ -317,6 +330,8 @@ conformance suite that has never been seen to fail is decoration:
 | Single-writer stack | restore the ECS rolling-update defaults; add an autoscaling target | 1 failure each |
 | A2A conformance | emit a non-A2A task state; renumber `methodNotFound`; blank the provenance notice | 1, 2 and 1 failures |
 | Console components | render the payload on the board; flag only the broken audit row instead of every row after it; drop the kill switch's typed-name guard | 1, 1 and 3 failures |
+| SDK wire-name guard | pass `side_effect` to `createTask`; drop the guard from the method | 3 failures |
+| SDK trace propagation | stop sending the trace header | 3 failures |
 | Console type-checking in the gate | reintroduce the mock-return-type error that had survived a green `check` | `lint` exits 1 |
 | OTLP export | stop parenting the span on the caller's trace id; leak the body via a direct `span.setAttributes` | 1 failure each |
 

@@ -13,6 +13,20 @@ export interface ClientOptions {
   /** Retries apply to 5xx and transport errors only — never to a 4xx. */
   maxRetries?: number;
   now?: () => Date;
+  /**
+   * The caller's current trace id, so the hub's work joins the same trace as
+   * the agent that called it (spec §8).
+   *
+   * A function rather than a value, because an agent handling many tasks has
+   * one trace per task, not one per client. Return `undefined` when there is
+   * no active trace and the hub will mint one.
+   *
+   * Without this the SDK sent no `x-agentbridge-trace-id` at all — the only
+   * header the hub reads a caller's trace from — so §8's "one trace spans both
+   * agents" held for raw HTTP callers and quietly failed for every SDK user,
+   * which is to say for the intended way to connect.
+   */
+  traceId?: () => string | undefined;
 }
 
 export interface InboxItem<T = unknown> {
@@ -39,6 +53,54 @@ export interface TaskView {
 interface WireError {
   error?: { code?: string; message?: string; trace_id?: string };
 }
+
+/**
+ * The wire names of fields this SDK takes in camelCase, and what to use instead.
+ *
+ * Passing the wire name is a silent, dangerous mistake rather than a loud one.
+ * `createTask({ side_effect: true })` is an excess property — TypeScript
+ * rejects it, but JavaScript does not, and the SDK then applied its
+ * `?? false` default: the task was created **ungated** and the assignee ran
+ * the side effect with no owner approval. That is the single failure
+ * `CLAUDE.md` §1.3 exists to prevent, and the contract explicitly says
+ * `side_effect` may not be defaulted.
+ *
+ * The confusion is structural, not careless: the wire contract, the generated
+ * OpenAPI, the CLI and every document use snake_case, and only this client
+ * uses camelCase. So the guard covers every such pair rather than the one
+ * field that happened to be noticed — `due_at` and `idempotency_key` fail the
+ * same way, just less expensively.
+ */
+const WIRE_NAME_HINTS: Readonly<Record<string, string>> = {
+  side_effect: 'sideEffect',
+  due_at: 'dueAt',
+  idempotency_key: 'idempotencyKey',
+  content_type: 'contentType',
+  trace_id: 'traceId',
+  blob_key: 'blobKey',
+  up_to: 'upTo',
+};
+
+/**
+ * Refuses an input carrying a wire-cased key. Throws rather than translating:
+ * accepting both spellings would leave the ambiguity in place, and the whole
+ * problem is that the two look interchangeable.
+ */
+function assertNoWireNames(method: string, input: object): void {
+  for (const key of Object.keys(input)) {
+    const correct = WIRE_NAME_HINTS[key];
+    if (correct !== undefined) {
+      throw new TypeError(
+        `${method}: "${key}" is the wire field name; this SDK takes "${correct}". ` +
+          `Passing "${key}" would have been ignored silently` +
+          (key === 'side_effect' ? ' — and the task created WITHOUT the approval gate.' : '.'),
+      );
+    }
+  }
+}
+
+/** W3C trace id: 16 bytes of lowercase hex. The hub rejects anything else. */
+const TRACE_ID_PATTERN = /^[0-9a-f]{32}$/;
 
 export class Client {
   private readonly fetchImpl: typeof fetch;
@@ -67,6 +129,7 @@ export class Client {
     sideEffect?: boolean;
     idempotencyKey?: string;
   }): Promise<{ id: string }> {
+    assertNoWireNames('send', input);
     return this.request('POST', '/v1/messages', {
       thread: input.thread,
       to: input.to,
@@ -87,6 +150,7 @@ export class Client {
     dueAt?: string;
     idempotencyKey?: string;
   }): Promise<TaskView> {
+    assertNoWireNames('createTask', input);
     return this.request('POST', '/v1/tasks', {
       thread: input.thread,
       assignee: input.assignee,
@@ -122,6 +186,7 @@ export class Client {
     inline?: unknown;
     idempotencyKey?: string;
   }): Promise<{ id: string; version: number }> {
+    assertNoWireNames('putArtifact', input);
     return this.request('POST', '/v1/artifacts', {
       task: input.task,
       kind: input.kind,
@@ -140,6 +205,10 @@ export class Client {
     payload: unknown;
     idempotencyKey?: string;
   }): Promise<TaskView> {
+    // Guarded here as well as in createTask: a caller passing
+    // `side_effect: false` to THIS method is expressing an intent the method
+    // name contradicts, and spreading it through would silently win.
+    assertNoWireNames('requestApproval', input);
     return this.createTask({ ...input, sideEffect: true });
   }
 
@@ -210,6 +279,26 @@ export class Client {
     return this.request('DELETE', `/v1/agents/${encodeURIComponent(ref)}/key`);
   }
 
+  /**
+   * The trace header, or nothing.
+   *
+   * Throws on a malformed id rather than sending it. The hub replaces a bad
+   * id and logs a warning server-side, so the caller would believe its traces
+   * were joined while they silently were not — the same shape of bug as a
+   * dropped `side_effect`, and just as invisible from the agent's side.
+   */
+  private traceHeader(): Record<string, string> {
+    const id = this.opts.traceId?.();
+    if (id === undefined || id === '') return {};
+    if (!TRACE_ID_PATTERN.test(id)) {
+      throw new TypeError(
+        `traceId() returned "${id}", which is not a 32-character lowercase hex ` +
+          'trace id. The hub would discard it and your traces would not join.',
+      );
+    }
+    return { 'x-agentbridge-trace-id': id };
+  }
+
   private async request<T>(method: string, pathWithQuery: string, bodyObj?: unknown): Promise<T> {
     const [bare, qs] = pathWithQuery.split('?');
     const path = bare ?? pathWithQuery;
@@ -238,6 +327,12 @@ export class Client {
             'x-agentbridge-agent': this.opts.agent,
             'x-agentbridge-timestamp': timestamp,
             'x-agentbridge-signature': signature,
+            // Deliberately outside the signed descriptor, which covers method,
+            // path, query, body hash and timestamp only. Adding a header to
+            // that set would be a contract change; the trace id is a hint for
+            // correlation, carries no authority, and the hub validates its
+            // shape and discards anything malformed.
+            ...this.traceHeader(),
           },
           ...(bodyObj === undefined ? {} : { body }),
           signal: AbortSignal.timeout(this.timeoutMs),

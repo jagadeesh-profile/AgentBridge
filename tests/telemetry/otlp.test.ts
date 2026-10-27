@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { requestDescriptor, signDescriptor } from '@agentbridge/contracts';
 import { flushTelemetry, initTelemetry, shutdownTelemetry } from '@agentbridge/hub';
+import { Client } from '@agentbridge/sdk';
 import { startHarness, type Harness } from '../e2e/harness.js';
 
 /**
@@ -113,10 +114,11 @@ const SECRET = 'launch-code-8831-do-not-log';
 /**
  * Creates a task over raw signed HTTP, so the inbound trace id can be set.
  *
- * Not via the SDK: `Client` does not send `x-agentbridge-trace-id`, which is
- * the only thing the hub reads a caller's trace id from. That is a genuine gap
- * — an SDK-using agent cannot join its trace to the hub's — but it is the
- * SDK's gap, not the exporter's, and this suite is about what leaves the hub.
+ * Raw rather than via the SDK because this suite is about the hub's own
+ * behaviour: signing here keeps the assertions independent of whether the
+ * client happens to propagate anything. (It does now — `ClientOptions.traceId`
+ * — and the case at the end of this file checks that the two meet, which is
+ * the claim neither half can make alone.)
  */
 async function createTaskSigned(
   key: Uint8Array,
@@ -227,6 +229,35 @@ describe('OTLP export — the collector claim, reproducible', () => {
     const names = receiver.spans().map((s) => s.name);
     expect(names.some((n) => n.startsWith('hub POST /v1/tasks'))).toBe(true);
     expect(names.some((n) => n.includes('?'))).toBe(false);
+  });
+
+  it('carries an SDK-supplied trace id all the way into an exported span', async () => {
+    // The end-to-end claim of §8, which neither side can make on its own: the
+    // SDK sends `x-agentbridge-trace-id`, the hub adopts it as the real OTel
+    // trace id, and the exporter puts it on the wire. Until the SDK gained
+    // `traceId` it sent no such header, so this path was broken for every
+    // agent connecting the intended way while the hub's half was fine.
+    const callerTrace = 'de'.repeat(16);
+    const key = await h.registerAgent('sdktracer');
+    const client = new Client({
+      baseUrl: h.baseUrl,
+      workspace: 'ws_otel',
+      agent: 'agent:sdktracer',
+      privateKey: key,
+      traceId: () => callerTrace,
+    });
+
+    await client.createTask({
+      thread: 'thr_otel_sdk',
+      assignee: 'agent:muse',
+      title: 'traced through the SDK',
+      payload: { n: 1 },
+    });
+    await flushTelemetry();
+    await new Promise((r) => setTimeout(r, 50));
+
+    const ids = new Set(receiver.spans().map((s) => s.traceId));
+    expect(ids).toContain(callerTrace);
   });
 
   it('serves requests normally while the collector is down', async () => {
