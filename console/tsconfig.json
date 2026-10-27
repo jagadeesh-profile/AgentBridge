@@ -1,4 +1,15 @@
 {
+  // NOT a project reference of the root tsconfig, unlike every other package,
+  // and it cannot be one: TypeScript forbids `composite: true` alongside
+  // `noEmit: true`, and this project needs `noEmit` (Next emits, tsc does not)
+  // plus `jsx: preserve` so Next owns the JSX transform. Making it composite
+  // would mean emitting declarations for a Next app, which nothing consumes.
+  //
+  // The consequence is that root `tsc -b` skips this package entirely. That
+  // went unnoticed until component tests were added and three type errors in
+  // them survived a green `make check` — only `next build` saw them. The gate
+  // therefore runs `pnpm --filter @agentbridge/console run typecheck`
+  // explicitly, as the last step of the root `lint` script.
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],

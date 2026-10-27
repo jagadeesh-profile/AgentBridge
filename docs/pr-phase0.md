@@ -34,7 +34,7 @@ make infra-synth                               # cdk synth only — never deploy
 | `make test-aws` — S3 `BlobStore` vs LocalStack | **24 tests** |
 | `make test-python` — Python SDK, cross-language vectors + a real hub | **20 tests** |
 | `make infra-synth` — `cdk synth` | 740-line template, **23 assertions** on it |
-| `pnpm --filter @agentbridge/console run build` | compiles — and **type-checks the console**, which root `tsc -b` does not: `console/` is absent from the root tsconfig's project references, so this is the only gate that catches a type error there. It caught three while these tests were being written |
+| `pnpm --filter @agentbridge/console run build` | compiles |
 
 The single skip is the S3 half of the `BlobStore` conformance suite when no
 LocalStack is reachable, so `make check` stays green without Docker. Because a
@@ -300,6 +300,7 @@ conformance suite that has never been seen to fail is decoration:
 | Single-writer stack | restore the ECS rolling-update defaults; add an autoscaling target | 1 failure each |
 | A2A conformance | emit a non-A2A task state; renumber `methodNotFound`; blank the provenance notice | 1, 2 and 1 failures |
 | Console components | render the payload on the board; flag only the broken audit row instead of every row after it; drop the kill switch's typed-name guard | 1, 1 and 3 failures |
+| Console type-checking in the gate | reintroduce the mock-return-type error that had survived a green `check` | `lint` exits 1 |
 
 Beyond mutation, and still automated:
 
@@ -328,6 +329,22 @@ under jsdom covering the three surfaces whose guarantees are load-bearing:
 `console/src/lib/owner-key.test.ts` still covers the part that matters most: a
 grep over the console's own sources asserting the owner key never reaches
 `localStorage`, `sessionStorage`, IndexedDB or a cookie.
+
+Writing them surfaced a gap in the gate itself. **`console/` cannot be a root
+`tsc -b` project reference** — TypeScript forbids `composite: true` with
+`noEmit: true`, and a Next app needs `noEmit` plus `jsx: preserve` so Next owns
+the transform — so root `tsc -b` had been skipping the package silently. Three
+type errors in these tests survived a green `make check` and were caught only by
+running `next build` by hand. The root `lint` script now ends with the console's
+own `tsc --noEmit`, verified by reintroducing one of those errors and watching
+`lint` exit 1.
+
+The same exercise found why they slipped through: the test stubs cast
+`as unknown as OwnerClient`, which is unavoidable for an incomplete stub but
+erases every type error inside the object literal — a stub returning the wrong
+shape would compile, and the test would then assert against a fiction. The
+literals are now checked against `Partial<OwnerClient>` before the cast, which
+confines it to "methods are missing" rather than "methods are wrong".
 
 ### Observed once, with no artifact a reviewer can re-run
 
@@ -425,11 +442,6 @@ stay on the filesystem).
   becomes owner-visible by default.
 - One **unreproduced e2e flake** — see "Observed once" above. Recorded rather
   than closed.
-- **`console/` is not in the root tsconfig's project references**, so `make
-  check`'s `tsc -b` does not type-check it. Only `pnpm --filter
-  @agentbridge/console run build` does, and that is not part of `check`. Either
-  the console becomes a composite project or the build joins the gate; leaving
-  it as-is means a console type error can reach `main` with a green `check`.
 - **No end-to-end browser test.** The component tests render components in
   jsdom; the real page against a real hub — loading a key, fetching, deciding —
   is still only exercised by hand.

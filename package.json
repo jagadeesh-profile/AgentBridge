@@ -11,7 +11,7 @@
     "dev": "docker compose up --build",
     "contracts": "pnpm --filter @agentbridge/contracts run generate && pnpm run contracts:drift",
     "contracts:drift": "node scripts/check-contract-drift.mjs",
-    "lint": "eslint . && prettier --check . && tsc -b",
+    "lint": "eslint . && prettier --check . && tsc -b && pnpm --filter @agentbridge/console run typecheck",
     "test": "vitest run",
     "test-e2e": "vitest run --config vitest.integration.config.ts tests/e2e",
     "conformance": "vitest run --config vitest.integration.config.ts tests/conformance",

@@ -16,11 +16,17 @@ import { Agents } from './agents.js';
 
 afterEach(cleanup);
 
+/**
+ * `base` is annotated so the literal is type-checked. The final cast is
+ * `as unknown as OwnerClient` because the stub is incomplete, and that cast
+ * would otherwise erase a wrong return shape inside the literal — which is
+ * how a stub ends up disagreeing with the real client while still compiling.
+ */
 function stubClient(over: Partial<OwnerClient> = {}): OwnerClient {
-  return {
+  const base: Partial<OwnerClient> = {
     revokeAgentKey: vi.fn(() => Promise.resolve({ revoked: 'agent:muse' })),
-    ...over,
-  } as unknown as OwnerClient;
+  };
+  return { ...base, ...over } as unknown as OwnerClient;
 }
 
 function agent(over: Partial<AgentSummary> = {}): AgentSummary {

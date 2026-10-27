@@ -23,12 +23,21 @@ import { Board } from './board.js';
 
 afterEach(cleanup);
 
-/** A client whose every method fails loudly — overridden per test as needed. */
+/**
+ * A client with only the methods these tests exercise.
+ *
+ * `base` is annotated `Partial<OwnerClient>` deliberately. The final cast has
+ * to be `as unknown as OwnerClient` because the stub is incomplete, and that
+ * cast erases every type error inside the object literal — a stub returning
+ * the wrong shape would compile and the test would assert against a fiction.
+ * Checking the literal against `Partial<OwnerClient>` first keeps the cast's
+ * blast radius to "methods are missing" rather than "methods are wrong".
+ */
 function stubClient(over: Partial<OwnerClient> = {}): OwnerClient {
-  return {
+  const base: Partial<OwnerClient> = {
     cancelTask: vi.fn(() => Promise.resolve({ id: 'tsk_01', state: 'canceled' })),
-    ...over,
-  } as unknown as OwnerClient;
+  };
+  return { ...base, ...over } as unknown as OwnerClient;
 }
 
 const SECRET = 'wire-50000-to-account-746251';

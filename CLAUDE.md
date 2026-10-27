@@ -67,7 +67,9 @@ Unit tests live next to the code they test and belong to that code's owner.
 make setup          # pnpm install + pre-commit install
 make dev            # docker compose up (hub container + volume for SQLite and artifacts)
 make contracts      # regenerate contracts/generated (fails if generated code drifts)
-make lint           # eslint, prettier --check, tsc --noEmit
+make lint           # eslint, prettier --check, tsc -b, then the console's own tsc --noEmit
+                    #   (console/ cannot be a project reference: TS forbids composite+noEmit,
+                    #   so root `tsc -b` skips it — see console/tsconfig.json)
 make test           # unit tests, all packages (vitest)
 make test-e2e       # e2e against a real in-process hub (SQLite on disk, worker)
 make test-container # the real Docker image, driven over HTTP only
