@@ -27,14 +27,14 @@ make infra-synth                               # cdk synth only — never deploy
 
 | Gate | Result |
 |---|---|
-| `make check` — lint, `tsc --strict`, unit tests, contract-drift | **640 tests** (37 files), + 1 deliberate skip |
+| `make check` — lint, `tsc --strict`, unit tests, contract-drift | **666 tests** (40 files), + 1 deliberate skip |
 | `make test-e2e` — real hub: SQLite on disk, delivery worker, real ports | **24 tests** |
 | `make conformance` — MCP + **A2A v1.0** | **48 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests** |
 | `make test-aws` — S3 `BlobStore` vs LocalStack | **24 tests** |
 | `make test-python` — Python SDK, cross-language vectors + a real hub | **20 tests** |
 | `make infra-synth` — `cdk synth` | 740-line template, **23 assertions** on it |
-| `pnpm --filter @agentbridge/console run build` | compiles |
+| `pnpm --filter @agentbridge/console run build` | compiles — and **type-checks the console**, which root `tsc -b` does not: `console/` is absent from the root tsconfig's project references, so this is the only gate that catches a type error there. It caught three while these tests were being written |
 
 The single skip is the S3 half of the `BlobStore` conformance suite when no
 LocalStack is reachable, so `make check` stays green without Docker. Because a
@@ -299,6 +299,7 @@ conformance suite that has never been seen to fail is decoration:
 | `BlobStore` conformance | disable the traversal guard; disable the not-found mapping | 2 and 1 failures |
 | Single-writer stack | restore the ECS rolling-update defaults; add an autoscaling target | 1 failure each |
 | A2A conformance | emit a non-A2A task state; renumber `methodNotFound`; blank the provenance notice | 1, 2 and 1 failures |
+| Console components | render the payload on the board; flag only the broken audit row instead of every row after it; drop the kill switch's typed-name guard | 1, 1 and 3 failures |
 
 Beyond mutation, and still automated:
 
@@ -311,37 +312,38 @@ Beyond mutation, and still automated:
   *at the moment of deploy*. The upgrade path has its own tests built on a real
   schema-version-3 database.
 
+### The console, now tested rather than clicked
+
+The console's surfaces were originally verified by hand, which left nothing a
+reviewer could re-run. Checking that claim before repeating it in this
+description is what produced `console/src/components/*.test.tsx` — 26 cases
+under jsdom covering the three surfaces whose guarantees are load-bearing:
+
+| Surface | What is pinned |
+|---|---|
+| Board | **No payload text reaches the DOM**, asserted by handing the component a task that carries one. `include_payload=false` keeps the bytes out of the browser; this keeps the component from rendering them if they ever arrive. Plus: no Cancel on a terminal task, and a failed cancel is reported rather than swallowed |
+| Audit | The chain-break rendering that was previously checked by dropping the append-only triggers by hand: the verdict text, the broken `seq`, and that **every row from the break onward** is flagged, not just the broken one. Verdicts come from the real `verifyAuditChain` over rows hashed with the real `auditRowHash`, never a hand-written verdict literal |
+| Agents | The kill switch's typed-name guard, which is **UI-only** — the hub revokes on one signed request, so nothing but these tests holds it. Covers the exact-match requirement, that the ref is not accepted in place of the name, that revoke goes by ref rather than by the typed text, and that reopening the prompt clears it so a stale entry cannot one-click the next agent |
+
+`console/src/lib/owner-key.test.ts` still covers the part that matters most: a
+grep over the console's own sources asserting the owner key never reaches
+`localStorage`, `sessionStorage`, IndexedDB or a cookie.
+
 ### Observed once, with no artifact a reviewer can re-run
 
-Separated from the list above deliberately. These were real observations in the
-session that made them, but nothing in the repo reproduces them, so they should
-carry less weight than anything with a test behind it:
+Two left, and they stay on this list honestly:
 
-- **The approval gate, kill switch and task board were driven in a real
-  browser** against a real hub. No Playwright or component test was written;
-  the console's only automated tests are `console/src/lib/owner-key.test.ts`,
-  which do cover the thing most worth covering — a grep over the console's own
-  sources asserting the owner key never reaches `localStorage`,
-  `sessionStorage`, IndexedDB or a cookie.
-- **The task board's `include_payload=false` guarantee** has an automated
-  assertion at `hub/src/http/app.test.ts:638`, but that is the API response,
-  not the page. The page-level check — that the payload text is absent from the
-  rendered DOM — was manual. An earlier draft of this description claimed the
-  stronger version; it was wrong, and checking it is what produced this section.
-- **The audit viewer was checked by dropping the append-only triggers** and
-  editing a row directly, after which the console reported `hash-mismatch at
-  seq 1`, flagged every row from the break and marked the tab. The chain rule
-  itself is unit-tested in `contracts`; the console's rendering of a break is
-  not.
 - **OTLP export was verified against a live collector**, with spans arriving
   under the caller's trace id, no body-bearing attribute and no span for
   `/healthz`. The allowlist is unit-tested; the collector round trip is not.
+  Closing it means a collector in CI.
 - **One unreproduced e2e flake**: 1 of 24 failed once in a combined run, with 13
   consecutive clean runs since and none during this session's work. Cause
   unknown, possibly ephemeral-port reuse.
 
-Closing the first four means a component test for the console and a collector
-in CI. Both are worth doing and neither is in this branch.
+No end-to-end browser test exists either — the component tests render
+components, not the real page against a real hub, so the session flow (loading
+a key, fetching, deciding) is still only exercised by hand.
 
 `make test-container` builds the image, boots it with a generated owner key on a
 fresh volume, and drives it over HTTP only — no `Store` handle exists on that
@@ -423,8 +425,14 @@ stay on the filesystem).
   becomes owner-visible by default.
 - One **unreproduced e2e flake** — see "Observed once" above. Recorded rather
   than closed.
-- **The console has no component or browser test.** Its surfaces were verified
-  by hand; only the owner-key handling is covered automatically.
+- **`console/` is not in the root tsconfig's project references**, so `make
+  check`'s `tsc -b` does not type-check it. Only `pnpm --filter
+  @agentbridge/console run build` does, and that is not part of `check`. Either
+  the console becomes a composite project or the build joins the gate; leaving
+  it as-is means a console type error can reach `main` with a green `check`.
+- **No end-to-end browser test.** The component tests render components in
+  jsdom; the real page against a real hub — loading a key, fetching, deciding —
+  is still only exercised by hand.
 
 ## Phase 0 exit gate
 

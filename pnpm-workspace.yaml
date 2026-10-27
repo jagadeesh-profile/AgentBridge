@@ -9,6 +9,8 @@ packages:
   - examples/*
   - tests
   - infra
+allowBuilds:
+  esbuild: set this to true or false
 minimumReleaseAgeExclude:
   - '@opentelemetry/api@1.10.0'
   - '@opentelemetry/core@3.0.0'

@@ -19,8 +19,8 @@ see "Verification debt".
 
 | Command | Result |
 |---|---|
-| `pnpm --filter @agentbridge/console run build` | **compiles** |
-| `make check` — lint, `tsc --strict`, unit, contract-drift | **640 tests** + 1 skip (the S3 half, when LocalStack is down — by design) |
+| `pnpm --filter @agentbridge/console run build` | **compiles**; also the only gate that type-checks `console/` — it is absent from the root tsconfig references |
+| `make check` — lint, `tsc --strict`, unit, contract-drift | **666 tests** + 1 skip (the S3 half, when LocalStack is down — by design) |
 | `make conformance` — MCP + A2A v1.0 | **47 tests** |
 | `make test-aws` — S3 adapter vs LocalStack | **24 tests**; fails rather than skips if LocalStack is absent |
 | `make infra-synth` — `cdk synth` only, never deploy (§7) | **740-line template**, 23 assertions on it |
@@ -124,6 +124,7 @@ see "Verification debt".
 | **`BlobStore` conformance suite** | ✅ one spec, both implementations, 24 assertions; mutation-checked twice |
 | **S3 wired into the composition root** | ✅ `AGENTBRIDGE_ARTIFACT_BUCKET` selects S3, else the filesystem. Credentials come from the task role, so §1.6 still holds |
 | **ADR 0010 — single-writer Phase 1** | ✅ the owner's decision, the deploy-time two-writer hazard, and the ~$29/month cost shape against §7's $50 threshold |
+| **Console component tests** | ✅ 26 cases under jsdom over board, audit and agents — the surfaces previously verified only by clicking. Mutation-checked: rendering a payload, flagging one audit row instead of all after the break, and dropping the typed-name guard each fail. No new dependency for JSX (the bundler's own transform, not `@vitejs/plugin-react`, whose esbuild install script the supply-chain policy blocks) |
 
 ### What the A2A conformance suite found
 
@@ -207,6 +208,11 @@ Carried deliberately, and the thing to resolve before merge:
   evidence that it was sufficient.
 - A fresh reviewer on the **approval gate**, the **signing path** and the
   **delivery scheduler** is the highest-value remaining check.
+- **`console/` escapes `make check`'s type checking** — it is not in the root
+  tsconfig's project references, so only the console's own build catches a type
+  error there, and that build is not part of `check`. Three such errors were
+  found by running it manually while the component tests were written. Either
+  make the console a composite project or add its build to the gate.
 
 ## Phase 0 exit gate
 
