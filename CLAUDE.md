@@ -71,7 +71,8 @@ make lint           # eslint, prettier --check, tsc --noEmit
 make test           # unit tests, all packages (vitest)
 make test-e2e       # e2e against a real in-process hub (SQLite on disk, worker)
 make test-container # the real Docker image, driven over HTTP only
-make conformance    # MCP conformance suite (A2A coverage is in hub/src/http/a2a.test.ts)
+make conformance    # MCP + A2A v1.0 conformance. The A2A half is written from the published
+                    #   spec, not from our adapter, and drives a real hub over signed HTTP
 make test-python    # Python SDK: cross-language vectors + a real hub. Needs python3; not in `make check`
 make test-aws       # S3 adapter vs LocalStack. Fails if LocalStack is absent rather than skipping; not in `make check`
 make infra-synth    # cdk synth only. NEVER cdk deploy/bootstrap/diff — that needs a human (§7)

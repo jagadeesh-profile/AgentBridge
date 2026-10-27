@@ -21,6 +21,35 @@ export const RPC = {
   contentTypeNotSupported: -32005,
 } as const;
 
+/**
+ * AgentBridge error code → JSON-RPC code. Unmapped codes surface as internal.
+ *
+ * Lives here rather than in the hub's A2A routes because the hub's single
+ * error handler needs it too: failures raised *before* the route runs — a
+ * malformed JSON body, a rejected signature — were escaping as AgentBridge's
+ * own `{ error: { code: "schema_invalid" } }` envelope, which an A2A client
+ * cannot parse and whose `code` is a string where JSON-RPC requires a number.
+ * The conformance suite caught both.
+ */
+export function hubCodeToRpc(code: string): number {
+  switch (code) {
+    case 'not_found':
+      return RPC.taskNotFound;
+    case 'illegal_transition':
+      return RPC.taskNotCancelable;
+    case 'schema_invalid':
+      return RPC.invalidParams;
+    case 'scope_denied':
+    case 'unauthenticated':
+    case 'key_revoked':
+      return RPC.invalidRequest;
+    case 'approval_required':
+      return RPC.unsupportedOperation;
+    default:
+      return RPC.internalError;
+  }
+}
+
 export type RpcId = string | number | null;
 
 export interface RpcRequest {

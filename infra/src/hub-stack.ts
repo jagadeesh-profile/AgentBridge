@@ -193,6 +193,13 @@ export class HubStack extends Stack {
       internetFacing: true,
     });
 
+    // The A2A Agent Card publishes this as the address remote agents should
+    // reach, so it must be the load balancer rather than the task. Left unset
+    // it defaults to localhost:8080, which no remote agent can reach — the
+    // A2A conformance suite caught that, and this is where a deployed stack
+    // would have shipped it.
+    container.addEnvironment('AGENTBRIDGE_PUBLIC_URL', `http://${lb.loadBalancerDnsName}`);
+
     const listener = lb.addListener('Http', {
       port: 80,
       open: true,

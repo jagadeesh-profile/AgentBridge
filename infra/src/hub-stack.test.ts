@@ -151,6 +151,18 @@ describe('HubStack', () => {
       });
     });
 
+    it('publishes the load-balancer address as the hub public URL', () => {
+      // Unset, the A2A Agent Card advertises http://localhost:8080 and no
+      // remote agent can discover this hub at all.
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Environment: Match.arrayWith([Match.objectLike({ Name: 'AGENTBRIDGE_PUBLIC_URL' })]),
+          }),
+        ]),
+      });
+    });
+
     it('passes the bucket name to the hub so the S3 adapter is actually used', () => {
       // Without this the composition root falls back to the filesystem store
       // and artifacts land on EFS — working, but not what this stack is for.

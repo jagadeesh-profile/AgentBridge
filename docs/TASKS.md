@@ -20,13 +20,13 @@ see "Verification debt".
 | Command | Result |
 |---|---|
 | `pnpm --filter @agentbridge/console run build` | **compiles** |
-| `make check` — lint, `tsc --strict`, unit, contract-drift | **639 tests** + 1 skip (the S3 half, when LocalStack is down — by design) |
+| `make check` — lint, `tsc --strict`, unit, contract-drift | **640 tests** + 1 skip (the S3 half, when LocalStack is down — by design) |
+| `make conformance` — MCP + A2A v1.0 | **47 tests** |
 | `make test-aws` — S3 adapter vs LocalStack | **24 tests**; fails rather than skips if LocalStack is absent |
-| `make infra-synth` — `cdk synth` only, never deploy (§7) | **740-line template**, 22 assertions on it |
+| `make infra-synth` — `cdk synth` only, never deploy (§7) | **740-line template**, 23 assertions on it |
 | `make test-python` — Python SDK | **20 tests** |
 | `make test-e2e` — real hub, SQLite on disk, delivery worker | **24 tests** |
 | `make test-container` — the real Docker image, HTTP only | **20 tests**, re-run against a freshly built image after the console work |
-| `make conformance` — MCP tool surface | **8 tests** |
 
 ## Stage A — contracts and crypto
 
@@ -110,7 +110,7 @@ see "Verification debt".
 | **A2A v1.0 endpoint** | ✅ card, JSON-RPC, `message/send` / `tasks/get` / `tasks/cancel`; ADR 0007 |
 | **A2A push notifications** | ✅ URL restricted to the agent's owner-authorised origin; reuses the retry/DLQ/redaction path |
 | A2A streaming | ⬜ declared `false` on the card; `message/stream` returns a reason |
-| A2A conformance suite | ⬜ coverage is in `hub/src/http/a2a.test.ts`; a real suite should run against the published spec |
+| **A2A conformance suite** | ✅ `tests/conformance/a2a.test.ts` — 47 cases incl. MCP, written from the published spec and driven over signed HTTP against a real hub. **Found four real defects** (below); mutation-checked twice |
 | **`infra/` AWS CDK** | ✅ single-writer Fargate + EFS + S3 + ALB, no NAT gateway (ADR 0010). 22 template assertions; `cdk synth` produces a 740-line template. **Not deployed** — §7. The four single-writer settings are each asserted, and two were mutation-checked |
 | **Store conformance suite** | ✅ one spec, both implementations, 48 assertions; mutation-checked |
 | **Phase 1 port adapter — S3 `BlobStore`** | ✅ one file; passes `blob-conformance.ts` against LocalStack, 12 cases each side; `pnpm run test-aws` refuses to pass vacuously |
@@ -124,6 +124,29 @@ see "Verification debt".
 | **`BlobStore` conformance suite** | ✅ one spec, both implementations, 24 assertions; mutation-checked twice |
 | **S3 wired into the composition root** | ✅ `AGENTBRIDGE_ARTIFACT_BUCKET` selects S3, else the filesystem. Credentials come from the task role, so §1.6 still holds |
 | **ADR 0010 — single-writer Phase 1** | ✅ the owner's decision, the deploy-time two-writer hazard, and the ~$29/month cost shape against §7's $50 threshold |
+
+### What the A2A conformance suite found
+
+Written from the spec rather than from `adapters/a2a/`, which is the only
+reason it found anything: the same session wrote the implementation from its
+own reading, so a suite written from memory would have reproduced the same
+misreadings. Four real defects, each fixed with the failing case kept:
+
+| Defect | Why it mattered |
+|---|---|
+| **The Agent Card advertised `http://localhost:8080`** | `publicUrl` defaulted to loopback and the composition root never set it, so a deployed hub published a card no remote agent could reach. Discovery is the first thing that must work and the last thing a local test exercises. The CDK stack now passes the ALB address, asserted in the template |
+| **The card declared `protocolVersion: '1.0'` but served the v0.3 shape** | v1.0 requires `supportedInterfaces[]`; the card had v0.3's `url` + `preferredTransport`. A v1.0 client reads `supportedInterfaces[0].url` and would have found nothing. Fixed additively — both are present and a case asserts they agree |
+| **A malformed JSON body answered with AgentBridge's envelope, not JSON-RPC** | Errors raised before the route ran (content-type parser) escaped as `{error:{code:"schema_invalid"}}` — a *string* code where JSON-RPC requires a number. An A2A client cannot parse it. Now `-32700` |
+| **Push refusal used `-32004` instead of `-32003`** | `-32004` ("operation not supported by this agent") contradicts the card, which declares `pushNotifications: true`. The spec has a dedicated `PushNotificationNotSupportedError` for exactly this |
+
+And one case where **the suite was wrong and the code was right**: an early
+assertion demanded a numeric JSON-RPC code for an unsigned call. Spec §5.4
+maps authentication to HTTP **401** and authorization to **403**, so the
+pre-existing 401 was correct, and satisfying the new assertion would have
+buried the status inside a 200 body where no standard HTTP auth client would
+look. The pre-existing unit tests caught the regression; the conformance case
+was corrected instead. Recorded because it is the counter-example to "a new
+test failing means the code is broken".
 | `make test-python` / `test-aws` targets missing from the Makefile | ✅ `test-python` was a pnpm script with no `make` target despite §3 documenting one |
 
 ### The Phase 1 storage decision — resolved

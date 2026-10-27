@@ -285,7 +285,13 @@ describe('push notification config', () => {
         pushNotificationConfig: { url: 'https://anywhere.example/hook' },
       }),
     );
-    expect(res.json().error.code).toBe(-32004);
+    // -32003 PushNotificationNotSupportedError, the spec's dedicated code for
+    // "push notifications used but not supported". This asserted -32004 until
+    // the A2A conformance suite pointed out that -32004 ("operation not
+    // supported by this agent") contradicts the card, which declares
+    // pushNotifications: true — the method exists, it is unavailable to a
+    // caller with no authorised origin.
+    expect(res.json().error.code).toBe(-32003);
   });
 
   it('REFUSES to configure push on someone else task', async () => {

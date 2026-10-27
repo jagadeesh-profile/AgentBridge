@@ -1,3 +1,4 @@
+import { RPC } from '@agentbridge/a2a';
 import { AgentBridgeError, ERROR_CATALOG, type ErrorCode } from '@agentbridge/contracts';
 import { ZodError } from 'zod';
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -48,10 +49,91 @@ function body(code: ErrorCode | 'internal', traceId: string, message?: string): 
  * never build error bodies and a newly added code cannot ship inconsistent
  * (spec §6). Stack traces are never returned (CLAUDE.md §4).
  */
+/**
+ * The A2A JSON-RPC endpoint, which needs its errors in a different shape.
+ *
+ * Matched on the URL rather than the resolved route because the two failures
+ * that made this necessary — a malformed JSON body and a rejected signature —
+ * both happen before the handler runs, in the content-type parser and the auth
+ * `preHandler` respectively.
+ */
+const A2A_RPC_PATH = '/a2a/v1';
+
+function isA2ARpc(req: FastifyRequest): boolean {
+  return (req.url ?? '').split('?')[0] === A2A_RPC_PATH;
+}
+
+/**
+ * Renders an error as JSON-RPC 2.0 for the A2A endpoint.
+ *
+ * Status 200 with the failure in the body, matching what the A2A route itself
+ * does: a non-2xx would make a transport failure indistinguishable from an
+ * application one. The id is echoed when the request supplied a readable one,
+ * because a client correlating by id otherwise waits forever for a reply it
+ * can match — and a request whose *body* failed to parse has no id to echo, so
+ * null is the honest answer there.
+ */
+function sendRpcError(
+  reply: FastifyReply,
+  req: FastifyRequest,
+  code: number,
+  message: string,
+  data?: unknown,
+): void {
+  const raw = (req.body as { id?: unknown } | undefined)?.id;
+  const id = typeof raw === 'string' || typeof raw === 'number' ? raw : null;
+  void reply.status(200).send({
+    jsonrpc: '2.0',
+    id,
+    error: { code, message, ...(data === undefined ? {} : { data }) },
+  });
+}
+
 export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler(
     (err: FastifyError | Error, req: FastifyRequest, reply: FastifyReply): void => {
       const traceId = req.traceId ?? String(req.id);
+
+      // A2A callers parse JSON-RPC, so they get JSON-RPC — including for the
+      // failures raised before the route runs. Without this they received
+      // AgentBridge's own envelope, whose `code` is a string like
+      // "schema_invalid" where JSON-RPC requires a number, which the A2A
+      // conformance suite caught on both the parse-error and unauthenticated
+      // paths. Scoped to this one path so every other route keeps the single
+      // error shape spec §6 defines.
+      if (isA2ARpc(req)) {
+        // NOTE: AgentBridgeError is deliberately NOT handled here, so
+        // authentication and authorization failures keep their HTTP status.
+        // Spec §5.4 maps authentication errors to 401 and authorization to
+        // 403, and a client that must refresh a credential needs to see the
+        // status rather than dig a code out of a 200 body. An earlier draft of
+        // this change converted them too, which is what made the pre-existing
+        // 401 tests fail — the tests were right and the conformance case
+        // asserting a numeric code for an unsigned call was wrong.
+        if (err instanceof SyntaxError) {
+          sendRpcError(reply, req, RPC.parseError, 'invalid JSON payload');
+          return;
+        }
+        if (err instanceof TooDeepError) {
+          sendRpcError(reply, req, RPC.invalidRequest, err.message);
+          return;
+        }
+        if (err instanceof ZodError) {
+          sendRpcError(reply, req, RPC.invalidParams, 'invalid parameters');
+          return;
+        }
+        // Everything else falls through to the standard handling below, which
+        // keeps its HTTP status. That covers authentication (401) and
+        // authorization (403) per spec §5.4, rate limiting (429 — transport
+        // backpressure, for which the A2A error table has no code), and any
+        // unexpected fault (500). Only the three cases above are JSON-RPC-layer
+        // concerns that the route would itself have reported as JSON-RPC had it
+        // been reached.
+        //
+        // An earlier draft ended this block with a catch-all that answered 200
+        // + -32603, which swallowed the 401s and is exactly the bug the
+        // pre-existing auth tests caught.
+      }
 
       if (err instanceof AgentBridgeError) {
         req.log.warn({ code: err.code, trace_id: traceId, detail: err.detail }, 'request rejected');

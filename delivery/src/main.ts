@@ -75,13 +75,25 @@ async function main(): Promise<void> {
             : { endpoint: process.env.AWS_ENDPOINT_URL, forcePathStyle: true }),
         });
 
-  const app = await buildApp({
-    store,
-    clock,
-    ids,
-    blob,
-    ownerPublicKey,
-  });
+  const app = await buildApp(
+    {
+      store,
+      clock,
+      ids,
+      blob,
+      ownerPublicKey,
+    },
+    {
+      // The address remote agents reach this hub at, published in the A2A
+      // Agent Card. Without it the card advertised http://localhost:8080 —
+      // correct for the pilot on one machine, useless to any remote agent,
+      // and invisible to every local test until the A2A conformance suite
+      // checked it.
+      ...(process.env.AGENTBRIDGE_PUBLIC_URL === undefined
+        ? {}
+        : { publicUrl: process.env.AGENTBRIDGE_PUBLIC_URL }),
+    },
+  );
 
   // Phase 0 runs delivery in-process. DELIVERY_MODE=worker runs only the
   // worker; =api serves without one (spec §2.4).

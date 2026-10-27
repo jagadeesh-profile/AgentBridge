@@ -10,6 +10,9 @@ import { makeWorker, type Worker } from '@agentbridge/delivery';
 import { canonicalize, ownerRequestDescriptor, signDescriptor } from '@agentbridge/contracts';
 import { Client, OwnerClient } from '@agentbridge/sdk';
 
+/** What the harness configures as the hub's externally reachable base URL. */
+export const A2A_PUBLIC_URL = 'https://hub.example.test';
+
 export interface Harness {
   baseUrl: string;
   store: SqliteStore;
@@ -51,7 +54,10 @@ export async function startHarness(workspace = 'ws_e2e'): Promise<Harness> {
       blob,
       ownerPublicKey: ownerPub,
     },
-    { logger: false, rateLimitMax: 5000 },
+    // A distinctive public URL, so the A2A conformance suite can prove the
+    // Agent Card advertises the configured address rather than a hardcoded
+    // default — the defect that made a deployed hub publish localhost:8080.
+    { logger: false, rateLimitMax: 5000, publicUrl: A2A_PUBLIC_URL },
   );
   await app.listen({ port: 0, host: '127.0.0.1' });
   const baseUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;

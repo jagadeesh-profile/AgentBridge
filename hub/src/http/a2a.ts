@@ -4,6 +4,7 @@ import {
   buildAgentCard,
   err,
   fromParts,
+  hubCodeToRpc,
   ok,
   parseEnvelope,
   toA2ATask,
@@ -98,8 +99,14 @@ function ownTaskOrThrow(deps: Deps, agent: AgentRecord, taskId: string): TaskRec
  */
 function assertAuthorisedOrigin(agent: AgentRecord, url: string): void {
   if (agent.webhookUrl === null) {
+    // -32003 PushNotificationNotSupportedError, not -32004. The spec has a
+    // dedicated code for "push notifications used but not supported", and
+    // -32004 ("operation not supported by this agent") reads as though the
+    // method itself were unavailable — which would contradict the card, since
+    // it declares pushNotifications: true. The accurate statement is that push
+    // is unsupported *for this caller*, having no authorised origin.
     throw new RpcFailure(
-      RPC.unsupportedOperation,
+      RPC.pushNotificationNotSupported,
       'this agent has no registered webhook, so it has no owner-authorised origin to ' +
         'push to. Register one at enrolment, or poll tasks/get.',
     );
@@ -118,26 +125,6 @@ function assertAuthorisedOrigin(agent: AgentRecord, url: string): void {
       `push url must share an origin with this agent's registered webhook (${allowed.origin}); ` +
         'the hub will not POST to a destination the owner did not authorise',
     );
-  }
-}
-
-/** Hub error code → JSON-RPC code. Unmapped codes surface as internal. */
-function hubCodeToRpc(code: string): number {
-  switch (code) {
-    case 'not_found':
-      return RPC.taskNotFound;
-    case 'illegal_transition':
-      return RPC.taskNotCancelable;
-    case 'schema_invalid':
-      return RPC.invalidParams;
-    case 'scope_denied':
-    case 'unauthenticated':
-    case 'key_revoked':
-      return RPC.invalidRequest;
-    case 'approval_required':
-      return RPC.unsupportedOperation;
-    default:
-      return RPC.internalError;
   }
 }
 

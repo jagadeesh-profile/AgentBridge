@@ -25,9 +25,35 @@ export function buildAgentCard(opts: AgentCardOptions) {
       opts.description ??
       'Vendor-neutral hub. Hand work to a registered agent and collect the result. ' +
         'Side effects wait for the owner to approve them.',
+    version: opts.version ?? '0.1.0',
+
+    /**
+     * v1.0 REQUIRED field (spec §4.4.1, §8.3.1). An ordered list whose first
+     * entry is the preferred interface; v1.0 consolidated v0.3's `url`,
+     * `preferredTransport` and `additionalInterfaces` into it.
+     *
+     * This card declared `protocolVersion: '1.0'` while serving only the v0.3
+     * shape, which the conformance suite caught. A client written against v1.0
+     * reads `supportedInterfaces[0].url` and would have found no endpoint at
+     * all.
+     */
+    supportedInterfaces: [
+      {
+        url: `${base}/a2a/v1`,
+        protocolBinding: 'JSONRPC',
+        protocolVersion: '1.0',
+      },
+    ],
+
+    /**
+     * Retained alongside `supportedInterfaces` for v0.3 clients. Removing them
+     * would break any caller already pointed at this hub, and they cost two
+     * fields — so they stay until there is a reason to believe nothing reads
+     * them. They must keep naming the same endpoint as
+     * `supportedInterfaces[0]`, which a conformance case asserts.
+     */
     url: `${base}/a2a/v1`,
     preferredTransport: 'JSONRPC',
-    version: opts.version ?? '0.1.0',
 
     capabilities: {
       // Declared false rather than advertised and stubbed. A caller that sees
