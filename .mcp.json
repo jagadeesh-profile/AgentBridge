@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "agentbridge": {
+      "command": "node",
+      "args": ["adapters/mcp/dist/index.js"],
+      "env": {
+        "AGENTBRIDGE_URL": "http://localhost:8090",
+        "AGENTBRIDGE_WORKSPACE": "ws_local",
+        "AGENTBRIDGE_AGENT": "agent:claudecode",
+        "AGENTBRIDGE_KEY_PATH": "claudecode.key"
+      }
+    }
+  }
+}
