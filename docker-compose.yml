@@ -11,6 +11,13 @@ services:
       # No default: a hub that accepted approvals against a placeholder owner
       # key would be worse than one that refuses to start.
       AGENTBRIDGE_OWNER_PUBLIC_KEY: ${AGENTBRIDGE_OWNER_PUBLIC_KEY:?run "agentbridge keygen --out owner.key" and put the printed public key here or in .env}
+      # The address the A2A Agent Card publishes for remote agents. Derived
+      # from the host port rather than defaulted separately: the card is served
+      # from inside the container, which only knows its own 8080, so an
+      # overridden host port made the card advertise an endpoint nothing here
+      # serves. The CDK stack already passed the ALB address for this reason —
+      # compose was the half that got missed.
+      AGENTBRIDGE_PUBLIC_URL: ${AGENTBRIDGE_PUBLIC_URL:-http://localhost:${AGENTBRIDGE_HOST_PORT:-8080}}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DELIVERY_INTERVAL_MS: ${DELIVERY_INTERVAL_MS:-1000}
     volumes:
