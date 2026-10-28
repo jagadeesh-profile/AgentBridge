@@ -9,6 +9,7 @@
   --danger: #ff6b6b;
   --danger-bg: #2a1a1d;
   --ok: #4ade80;
+  --ok-bg: #14241b;
   --radius: 10px;
 }
 
@@ -24,6 +25,7 @@
     --danger: #c2332f;
     --danger-bg: #fdf0ef;
     --ok: #1f7a43;
+    --ok-bg: #eef7f1;
   }
 }
 
@@ -251,16 +253,30 @@ button.tab.on {
   padding: 0.08rem 0.45rem;
 }
 
-.verdict {
-  border-left-width: 3px;
-}
-
+/*
+ * The audit verdict banner: the most consequential thing this console says.
+ *
+ * This was a 3px coloured left border. Two problems with that. It is the
+ * decorative side-accent pattern the design review flags, and more
+ * importantly it signalled the two states unevenly: `.bad-verdict` already
+ * had a tint AND red text, so the border added nothing there, while
+ * `.ok-verdict` had the border and nothing else. The result was that "your
+ * audit chain verifies" — the state an owner most needs to read at a glance —
+ * was the faintest thing on the screen.
+ *
+ * Now both states use the same full-perimeter treatment: the panel's own 1px
+ * border recoloured, plus a tint. Symmetric, no side accent, and the good
+ * state is as legible as the bad one. Text/background pairs clear AA in both
+ * themes (9.3:1 dark, 4.9:1 light).
+ */
 .ok-verdict {
-  border-left-color: var(--ok);
+  border-color: var(--ok);
+  color: var(--ok);
+  background: var(--ok-bg);
 }
 
 .bad-verdict {
-  border-left-color: var(--danger);
+  border-color: var(--danger);
   color: var(--danger);
   background: var(--danger-bg);
 }

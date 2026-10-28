@@ -63,6 +63,17 @@ describe('Audit — a chain that verifies', () => {
     expect(text).toContain('3');
   });
 
+  it('carries the ok-verdict class the stylesheet colours', () => {
+    // Pins the contract between this component and globals.css. The verdict
+    // banner's whole job is to be read at a glance; a renamed class would
+    // leave it styled as a plain panel and silently indistinguishable from
+    // the broken state.
+    const rows = chain(2);
+    render(<Audit rows={rows} verification={verifyAuditChain(rows)} deadLetters={[]} />);
+    expect(document.querySelector('.verdict.ok-verdict')).not.toBeNull();
+    expect(document.querySelector('.bad-verdict')).toBeNull();
+  });
+
   it('marks no row as suspect when nothing is wrong', () => {
     const rows = chain(3);
     render(<Audit rows={rows} verification={verifyAuditChain(rows)} deadLetters={[]} />);
