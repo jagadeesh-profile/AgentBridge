@@ -21,7 +21,8 @@
     "test-aws": "node scripts/test-aws.mjs",
     "infra-synth": "pnpm --filter @agentbridge/infra exec tsc -b && pnpm --filter @agentbridge/infra exec cdk synth -c ownerPublicKey=$AGENTBRIDGE_OWNER_PUBLIC_KEY",
     "test-otel": "vitest run --config vitest.integration.config.ts tests/telemetry",
-    "test-otel-collector": "node scripts/test-otel-collector.mjs"
+    "test-otel-collector": "node scripts/test-otel-collector.mjs",
+    "check-owner-key": "node scripts/check-owner-key.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

@@ -76,6 +76,9 @@ make test-container # the real Docker image, driven over HTTP only
 make conformance    # MCP + A2A v1.0 conformance. The A2A half is written from the published
                     #   spec, not from our adapter, and drives a real hub over signed HTTP
 make test-python    # Python SDK: cross-language vectors + a real hub. Needs python3; not in `make check`
+make check-owner-key  # derives a key file's public key, compares it with the running
+                    #   hub's configured one, and reports clock skew. The two causes of an
+                    #   owner 401 are indistinguishable from the outside; this separates them
 make test-aws       # S3 adapter vs LocalStack. Fails if LocalStack is absent rather than skipping; not in `make check`
 make test-otel      # spans leaving over OTLP/HTTP to an in-process receiver. No Docker, so CI runs it
 make test-otel-collector  # the same against the REAL collector image, then greps its log for the
