@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ed from '@noble/ed25519';
 import { describe, expect, it } from 'vitest';
-import { OwnerKeyError, parseOwnerKey, wipeKey } from './owner-key.js';
+import { OwnerKeyError, ownerPublicKey, parseOwnerKey, wipeKey } from './owner-key.js';
 
 const b64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
 
@@ -107,5 +107,33 @@ describe('the console never puts the owner key at rest', () => {
     // A guard that walks an empty directory passes forever. Both rules above
     // are vacuous without this.
     expect(sources(srcDir).length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('ownerPublicKey', () => {
+  /**
+   * The console cannot tell an owner key from any other 32 bytes — only the
+   * hub can, deliberately. So when the hub refuses one, the useful thing the
+   * console CAN do is say which key it just offered: the derived public key is
+   * directly comparable with AGENTBRIDGE_OWNER_PUBLIC_KEY, which turns "one of
+   * these three files is wrong" into a comparison.
+   */
+  it('derives the same public key the SDK would, for a known pair', async () => {
+    const priv = ed.utils.randomPrivateKey();
+    const pub = await ed.getPublicKeyAsync(priv);
+    expect(await ownerPublicKey(priv)).toBe(b64(pub));
+  });
+
+  it('returns base64 of 32 bytes', async () => {
+    const priv = ed.utils.randomPrivateKey();
+    const out = await ownerPublicKey(priv);
+    expect(out).toMatch(/^[A-Za-z0-9+/]{43}=$/);
+    expect(Buffer.from(out, 'base64')).toHaveLength(32);
+  });
+
+  it('is a PUBLIC key — it never equals the private bytes it came from', async () => {
+    // The whole point is that this is safe to display.
+    const priv = ed.utils.randomPrivateKey();
+    expect(await ownerPublicKey(priv)).not.toBe(b64(priv));
   });
 });

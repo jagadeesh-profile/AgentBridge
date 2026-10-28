@@ -78,3 +78,29 @@ export function parseOwnerKey(text: string): Uint8Array {
 export function wipeKey(key: Uint8Array): void {
   key.fill(0);
 }
+
+/**
+ * The PUBLIC half of a loaded owner key, base64 — safe to display.
+ *
+ * Exists because "the hub rejected this key" is not actionable on its own.
+ * `owner.key`, `claude.key` and `muse.key` are all 44 bytes of base64 sitting
+ * in the same directory, and nothing here can tell them apart: refusing a
+ * non-owner key is the hub's job, deliberately, since only the hub knows which
+ * public key it was started with. So the file dialog offers several
+ * indistinguishable files and picking the wrong one produces an error that
+ * mentions the key, the clock and the workspace — and sends you to check the
+ * two that are fine.
+ *
+ * Showing the derived public key closes that loop: it is directly comparable
+ * with `AGENTBRIDGE_OWNER_PUBLIC_KEY`, so "which file did I pick" stops being
+ * a guess. A public key discloses nothing — it is already in the hub's
+ * environment and its compose file.
+ */
+export async function ownerPublicKey(key: Uint8Array): Promise<string> {
+  const ed = await import('@noble/ed25519');
+  const pub = await ed.getPublicKeyAsync(key);
+  let binary = '';
+  for (const byte of pub) binary += String.fromCharCode(byte);
+  // btoa rather than Buffer: this runs in the page.
+  return btoa(binary);
+}

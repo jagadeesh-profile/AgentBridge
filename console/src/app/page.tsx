@@ -10,7 +10,7 @@ import {
   type PendingTask,
 } from '@agentbridge/sdk/owner';
 import type { AuditVerification } from '@agentbridge/contracts';
-import { OwnerKeyError, parseOwnerKey, wipeKey } from '../lib/owner-key';
+import { OwnerKeyError, ownerPublicKey, parseOwnerKey, wipeKey } from '../lib/owner-key';
 import { Agents } from '../components/agents';
 import { Board } from '../components/board';
 import { Audit } from '../components/audit';
@@ -99,8 +99,24 @@ export default function ApprovalsPage() {
       setAgents(roster);
       setAudit({ rows: log.rows, verification: log.verification, dead });
     } catch (err) {
+      // Derive the public half BEFORE wiping, and only on the one error where
+      // it helps. "The hub rejected this key" is not actionable when three
+      // indistinguishable key files sit in the same folder; the public key is
+      // directly comparable with AGENTBRIDGE_OWNER_PUBLIC_KEY, so it turns a
+      // guess into a comparison. It discloses nothing — the hub already has it
+      // in its environment.
+      let hint = '';
+      if (err !== null && typeof err === 'object' && 'code' in err) {
+        if (String((err as { code: unknown }).code) === 'unauthenticated') {
+          try {
+            hint = ` The file you picked has public key ${await ownerPublicKey(key)} — compare that with AGENTBRIDGE_OWNER_PUBLIC_KEY on the hub.`;
+          } catch {
+            // Deriving is a convenience; never let it mask the real error.
+          }
+        }
+      }
       wipeKey(key);
-      setError(describeError(err));
+      setError(describeError(err) + hint);
       return;
     }
     setSession({ client, key, workspace: ws });
